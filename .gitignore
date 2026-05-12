@@ -4,3 +4,4 @@ Tests/.DS_Store
 *.xcuserstate
 *.plist
 *.xcworkspacedata
+.build
