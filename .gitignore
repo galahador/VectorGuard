@@ -1,0 +1,6 @@
+Sources/.DS_Store
+Tests/.DS_Store
+.DS_Store
+*.xcuserstate
+*.plist
+*.xcworkspacedata
