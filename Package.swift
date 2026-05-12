@@ -16,11 +16,17 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "VectorGuard"
+            name: "VectorGuard",
+            path: "Sources/VectorGuard",
+            linkerSettings: [
+                .linkedFramework("CoreMotion"),
+                .linkedFramework("CoreLocation"),
+            ]
         ),
         .testTarget(
             name: "VectorGuardTests",
-            dependencies: ["VectorGuard"]
+            dependencies: ["VectorGuard"],
+            path: "Tests/VectorGuardTests"
         ),
     ]
 )
