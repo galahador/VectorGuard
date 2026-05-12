@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "VectorGuard",
     platforms: [
-        .iOS(.v16),
+        .iOS(.v15),
         .macOS(.v14),
     ],
     products: [
