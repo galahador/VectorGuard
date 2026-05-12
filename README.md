@@ -1,8 +1,10 @@
 # VectorGuard
 
-VectorGuard is an advanced iOS motion and sensor framework designed for real-time device behavior analysis.
+<p align="center">
+  <img src="https://github.com/galahador/VectorGuard/blob/main/VectorGuardImage.png" width="440" alt="DeviceSecurityKit" />
+</p>
 
----
+VectorGuard is an advanced iOS motion and sensor framework designed for real-time device behavior analysis.
 
 # Features
 
