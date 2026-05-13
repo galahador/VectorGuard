@@ -27,20 +27,25 @@ VectorGuard is an advanced iOS motion and sensor framework designed for real-tim
 
 # Privacy Permissions
 
-| Sensor | Permission required |
+| Sensor | Permission key |
 |---|---|
-| Accelerometer + Gyroscope | None |
+| Accelerometer + Gyroscope | `NSMotionUsageDescription` |
 | Barometer | None |
 | Compass (heading) | `NSLocationWhenInUseUsageDescription` |
 
-Add the following to your app’s `Info.plist` only if you need compass heading events:
+Add the relevant keys to your app’s `Info.plist`:
 
 ```xml
+<!-- Required for accelerometer / gyroscope -->
+<key>NSMotionUsageDescription</key>
+<string>Motion data is used to detect device movement and anti-theft events.</string>
+
+<!-- Required only if compass heading events are needed -->
 <key>NSLocationWhenInUseUsageDescription</key>
 <string>Heading data is used for compass analysis.</string>
 ```
 
-If your app does not need compass heading, no `Info.plist` key is required at all.
+The barometer requires no `Info.plist` key.
 
 ---
 
