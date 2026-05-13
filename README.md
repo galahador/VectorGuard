@@ -102,14 +102,20 @@ Task {
 }
 ```
 
-### 3. Query current status at any time
+### 3. Vector Delegate ( print sensor response ) 
 
 ```swift
-let status = VectorGuard.shared.status
-print(status.currentState)       // e.g. moving(intensity: 0.43 g)
-print(status.isJiggling)         // true / false
-print(status.lastHeading ?? "-") // compass degrees
-print(status.lastEventDate)      // when the last event fired
+class BaseViewController: UIViewController, VectorGuardDelegate { 
+    func vectorGuard(_ guard: VectorGuard, didDetect event: VectorGuardEvent) {
+        switch event {
+        case .accelerationSpike(let magnitude, let vector):
+            print("magnitude -> \(magnitude)")
+            print("vector -> \(vector)")
+                        
+        default: break
+        }
+    }
+}
 ```
 
 ### 4. Stop monitoring
