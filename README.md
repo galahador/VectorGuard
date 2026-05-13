@@ -8,33 +8,39 @@ VectorGuard is an advanced iOS motion and sensor framework designed for real-tim
 
 # Features
 
-- Real-time motion analysis
+- Real-time motion analysis (accelerometer + gyroscope fusion)
 - Device theft / grab detection
-- Suspicious movement monitoring
-- Sensor fusion engine
-- Background motion tracking
-- Motion pattern recognition
-- Orientation and stability detection
-- Lightweight and optimized
-- Native Swift implementation
+- Jiggle and rapid-movement classification
+- Compass heading change detection
+- Barometric altitude change detection
+- Multi-subscriber `AsyncStream` event API
+- Raw sensor monitoring stream (`monitorSensors()`)
+- Filtered event subscriptions (`subscribe(where:)`)
+- Throttled sensor stream for SwiftUI (`monitorSensors(throttle:)`)
+- Sensitivity presets: `.sensitive`, `.balanced`, `.relaxed`
+- Point-in-time status snapshot (`VectorGuard.shared.status`)
+- Zero dependencies — CoreMotion + CoreLocation only
+- Native Swift, `@MainActor` safe
 - Easy Swift Package Manager integration
 
 ---
 
 # Privacy Permissions
 
-VectorGuard uses motion and heading sensors provided by Apple frameworks.
+| Sensor | Permission required |
+|---|---|
+| Accelerometer + Gyroscope | None |
+| Barometer | None |
+| Compass (heading) | `NSLocationWhenInUseUsageDescription` |
 
-To use motion analysis and compass functionality, add the following permissions to your app’s `Info.plist`:
+Add the following to your app’s `Info.plist` only if you need compass heading events:
 
 ```xml
-<key>NSMotionUsageDescription</key>
-<string>Motion data is used for vector analysis.</string>
-
 <key>NSLocationWhenInUseUsageDescription</key>
-<string>Location and heading data are used for compass analysis.</string>
-
+<string>Heading data is used for compass analysis.</string>
 ```
+
+If your app does not need compass heading, no `Info.plist` key is required at all.
 
 ---
 
