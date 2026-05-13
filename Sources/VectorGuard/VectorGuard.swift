@@ -50,7 +50,7 @@ import Foundation
 /// VectorGuard.shared.startMonitoring()
 /// ```
 ///
-/// > Note: VectorGuard requires no special Info.plist keys for motion or heading data.
+/// > Note: VectorGuard requires no special Info.plist keys for motion or heading data. <---- Check this before realease! 
 @MainActor
 public final class VectorGuard {
 
@@ -79,10 +79,52 @@ public final class VectorGuard {
     /// Whether the library is actively collecting sensor data.
     public private(set) var isMonitoring = false
 
+    /// A point-in-time snapshot of everything VectorGuard knows.
+    ///
+    /// Each access returns an independent, immutable ``VectorGuardStatus`` value — safe to
+    /// store, compare, or pass to other types without worrying about concurrent mutation.
+    ///
+    /// ```swift
+    /// let status = VectorGuard.shared.status
+    /// if status.isJiggling { triggerAlarm() }
+    /// print(status.lastHeading ?? "no heading")
+    /// ```
+    public var status: VectorGuardStatus {
+        VectorGuardStatus(
+            isMonitoring:    isMonitoring,
+            currentState:    currentState,
+            lastAcceleration: lastAcceleration,
+            lastGyroscope:   lastGyroscope,
+            lastHeading:     lastHeading,
+            lastEvent:       lastEvent,
+            lastEventDate:   lastEventDate
+        )
+    }
+
+    // MARK: - Live Sensor Readings
+
+    /// Most recent user-acceleration vector (g). Updated on every sensor frame.
+    public private(set) var lastAcceleration: SensorVector?
+
+    /// Most recent rotation-rate vector (rad/s). Updated on every sensor frame.
+    public private(set) var lastGyroscope: SensorVector?
+
+    /// Most recent compass heading in degrees (0–360). Updated on every heading callback.
+    public private(set) var lastHeading: Double?
+
+    /// Most recently emitted event.
+    public private(set) var lastEvent: VectorGuardEvent?
+
+    /// Wall-clock time of the most recently emitted event.
+    public private(set) var lastEventDate: Date?
+
     // MARK: - Internal: Stream Subscribers
 
-    /// Each subscriber gets its own continuation keyed by a unique ID.
+    /// Each event subscriber gets its own continuation keyed by a unique ID.
     private var subscribers: [UUID: AsyncStream<VectorGuardEvent>.Continuation] = [:]
+
+    /// Each sensor-reading subscriber gets its own continuation keyed by a unique ID.
+    private var sensorSubscribers: [UUID: AsyncStream<SensorReading>.Continuation] = [:]
 
     // MARK: - Internal: Sensor Components
 
@@ -108,10 +150,24 @@ public final class VectorGuard {
         isMonitoring = true
 
         motionManager.startUpdates(interval: configuration.sensorUpdateInterval) { [weak self] accel, gyro in
-            self?.analyzer.process(accelerometer: accel, gyroscope: gyro)
+            guard let self else { return }
+            self.lastAcceleration = accel.userAcceleration
+            self.lastGyroscope    = gyro.rotationRate
+            self.analyzer.process(accelerometer: accel, gyroscope: gyro)
+            let reading = SensorReading(
+                acceleration: accel.userAcceleration,
+                gyroscope:    gyro.rotationRate,
+                heading:      self.lastHeading,
+                timestamp:    accel.timestamp,
+                state:        self.currentState
+            )
+            for continuation in self.sensorSubscribers.values {
+                continuation.yield(reading)
+            }
         }
 
         compassManager.startUpdates { [weak self] heading in
+            self?.lastHeading = heading
             self?.analyzer.process(heading: heading)
         }
     }
@@ -167,6 +223,40 @@ public final class VectorGuard {
         return stream
     }
 
+    /// Returns an `AsyncStream` that delivers a ``SensorReading`` on every motion sensor frame.
+    ///
+    /// Use this when you need continuous access to raw sensor values — acceleration,
+    /// gyroscope, heading, and the current motion state — rather than discrete events.
+    /// Multiple independent callers are fully supported; each gets every frame.
+    /// The stream ends when ``stopMonitoring()`` is called or the subscriber's `Task` is cancelled.
+    ///
+    /// ```swift
+    /// Task {
+    ///     for await reading in VectorGuard.shared.monitorSensors() {
+    ///         print(String(format: "accel: %.2f g", reading.acceleration.magnitude))
+    ///         print(String(format: "gyro:  %.2f rad/s", reading.gyroscope.magnitude))
+    ///         print("heading:", reading.heading.map { "\($0)°" } ?? "n/a")
+    ///         print("state:", reading.state)
+    ///     }
+    /// }
+    /// ```
+    public func monitorSensors() -> AsyncStream<SensorReading> {
+        let id = UUID()
+        var localContinuation: AsyncStream<SensorReading>.Continuation?
+        let stream = AsyncStream<SensorReading> { continuation in
+            localContinuation = continuation
+        }
+        if let continuation = localContinuation {
+            sensorSubscribers[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.sensorSubscribers.removeValue(forKey: id)
+                }
+            }
+        }
+        return stream
+    }
+
     // MARK: - Private: Broadcasting
 
     private func broadcast(event: VectorGuardEvent) {
@@ -175,6 +265,8 @@ public final class VectorGuard {
         if case .stateChanged(_, let newState) = event {
             currentState = newState
         }
+        lastEvent     = event
+        lastEventDate = Date()
         // Deliver to single delegate
         delegate?.vectorGuard(self, didDetect: event)
         // Deliver to every stream subscriber
@@ -186,5 +278,7 @@ public final class VectorGuard {
     private func finishAllStreams() {
         subscribers.values.forEach { $0.finish() }
         subscribers.removeAll()
+        sensorSubscribers.values.forEach { $0.finish() }
+        sensorSubscribers.removeAll()
     }
 }
