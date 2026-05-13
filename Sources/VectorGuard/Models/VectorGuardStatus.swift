@@ -67,6 +67,16 @@ public struct VectorGuardStatus: Sendable {
     /// `nil` on devices without a compass, or before the first heading update.
     public let lastHeading: Double?
 
+    /// The most recent barometric pressure in kilopascals.
+    ///
+    /// `nil` on devices without a barometer or before the first barometer update.
+    public let lastPressure: Double?
+
+    /// Relative altitude in metres since monitoring started.
+    ///
+    /// `nil` on devices without a barometer or before the first barometer update.
+    public let lastRelativeAltitude: Double?
+
     // MARK: - Event History
 
     /// The most recently emitted ``VectorGuardEvent``.
@@ -87,15 +97,19 @@ public struct VectorGuardStatus: Sendable {
         lastAcceleration: SensorVector?,
         lastGyroscope: SensorVector?,
         lastHeading: Double?,
+        lastPressure: Double?,
+        lastRelativeAltitude: Double?,
         lastEvent: VectorGuardEvent?,
         lastEventDate: Date?
     ) {
-        self.isMonitoring     = isMonitoring
-        self.currentState     = currentState
-        self.lastAcceleration = lastAcceleration
-        self.lastGyroscope    = lastGyroscope
-        self.lastHeading      = lastHeading
-        self.lastEvent        = lastEvent
-        self.lastEventDate    = lastEventDate
+        self.isMonitoring        = isMonitoring
+        self.currentState        = currentState
+        self.lastAcceleration    = lastAcceleration
+        self.lastGyroscope       = lastGyroscope
+        self.lastHeading         = lastHeading
+        self.lastPressure        = lastPressure
+        self.lastRelativeAltitude = lastRelativeAltitude
+        self.lastEvent           = lastEvent
+        self.lastEventDate       = lastEventDate
     }
 }

@@ -69,12 +69,20 @@ public struct VectorGuardConfiguration: Sendable {
     public var jigglingWindow: TimeInterval = 0.8
     
     // MARK: - Compass
-    
+
     /// Heading change (degrees) above which a ``VectorGuardEvent/headingChanged(current:delta:)``
     /// event is emitted.
     ///
     /// Default: `15°`.
     public var headingChangedThreshold: Double = 15.0
+
+    // MARK: - Barometer
+
+    /// Relative altitude change (metres) above which a ``VectorGuardEvent/altitudeChanged(delta:pressure:)``
+    /// event is emitted.
+    ///
+    /// Default: `1.0` m (roughly one floor). Lower values increase sensitivity to small vertical moves.
+    public var altitudeChangeThreshold: Double = 1.0
     
     // MARK: - Init
 
