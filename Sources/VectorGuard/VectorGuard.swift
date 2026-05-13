@@ -74,7 +74,9 @@ public final class VectorGuard {
     public weak var delegate: VectorGuardDelegate?
 
     /// The most recently inferred motion state.
-    public private(set) var currentState: MotionState = .idle
+    ///
+    /// Reads directly from the analyzer 
+    public var currentState: MotionState { analyzer.currentState }
 
     /// Whether the library is actively collecting sensor data.
     public private(set) var isMonitoring = false
@@ -166,9 +168,11 @@ public final class VectorGuard {
             }
         }
 
-        compassManager.startUpdates { [weak self] heading in
-            self?.lastHeading = heading
-            self?.analyzer.process(heading: heading)
+        if compassManager.isAvailable {
+            compassManager.startUpdates { [weak self] heading in
+                self?.lastHeading = heading
+                self?.analyzer.process(heading: heading)
+            }
         }
     }
 
@@ -262,9 +266,6 @@ public final class VectorGuard {
     private func broadcast(event: VectorGuardEvent) {
         // Drop any in-flight callbacks that arrived after stopMonitoring() was called.
         guard isMonitoring else { return }
-        if case .stateChanged(_, let newState) = event {
-            currentState = newState
-        }
         lastEvent     = event
         lastEventDate = Date()
         // Deliver to single delegate
