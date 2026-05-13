@@ -191,9 +191,10 @@ final class MotionAnalyzer {
     }
     
     private func reconfigureBuffers() {
-        let cap = Self.bufferCapacity(for: configuration)
-        accelBuffer   = SignalBuffer(capacity: cap)
+        let newCap = Self.bufferCapacity(for: configuration)
         idleSampleTarget = Self.idleSampleTarget(for: configuration)
+        guard newCap != accelBuffer.capacity else { return }
+        accelBuffer = SignalBuffer(capacity: newCap)
     }
     
     private func axisSign(_ value: Double) -> Int {
