@@ -53,16 +53,58 @@ To use motion analysis and compass functionality, add the following permissions 
 
 # Quick Start
 
+### 1. Configure and start (one call)
+
 ```swift
 import VectorGuard
 
-let guardEngine = VectorGuardEngine()
+// AppDelegate or SwiftUI @main init()
+VectorGuard.configure(autoStart: true)
+```
 
-guardEngine.startMonitoring()
+Pass optional parameters to tune sensitivity or wire a delegate:
 
-guardEngine.onMotionEvent = { event in
-    print(event)
+```swift
+VectorGuard.configure(
+    configuration: VectorGuardConfiguration(rapidMovementThreshold: 2.0),
+    delegate: self,
+    autoStart: true
+)
+```
+
+### 2. Subscribe to events (supports multiple independent subscribers)
+
+```swift
+Task {
+    for await event in VectorGuard.shared.subscribe() {
+        switch event {
+        case .devicePickedUp:
+            triggerAlarm()
+        case .stateChanged(_, let new):
+            print("State →", new)
+        case .accelerationSpike(let mag, _):
+            print("Spike:", mag, "g")
+        default:
+            break
+        }
+    }
 }
+```
+
+### 3. Query current status at any time
+
+```swift
+let status = VectorGuard.shared.status
+print(status.currentState)       // e.g. moving(intensity: 0.43 g)
+print(status.isJiggling)         // true / false
+print(status.lastHeading ?? "-") // compass degrees
+print(status.lastEventDate)      // when the last event fired
+```
+
+### 4. Stop monitoring
+
+```swift
+VectorGuard.shared.stopMonitoring()
 ```
 ---
 
@@ -98,13 +140,22 @@ It combines data from multiple hardware sensors including:
 
 # Example Events
 
+| Event | When it fires |
+|---|---|
+| `.devicePickedUp` | Device transitions from idle → moving or grabbed suddenly |
+| `.devicePutDown` | Device transitions from moving/jiggling → idle |
+| `.accelerationSpike(magnitude:vector:)` | Sharp linear-acceleration above threshold (grab / drop / throw) |
+| `.rotationSpike(magnitude:vector:)` | Sharp angular-velocity spike (rapid twist or flip) |
+| `.headingChanged(current:delta:)` | Compass heading changed beyond configured threshold |
+| `.stateChanged(from:to:)` | Any motion-state transition |
+
+Motion states exposed via `VectorGuard.shared.status.currentState`:
+
 ```swift
-.deviceGrabbed
-.suspiciousMotion
-.deviceDropped
-.orientationChanged
-.highAcceleration
-.unusualMovementPattern
+.idle                          // at rest
+.moving(intensity: Double)     // steady movement; intensity in g
+.rapidMovement(vector: SensorVector) // sudden high-g spike
+.jiggling                      // repeated directional reversals
 ```
 ---
 
