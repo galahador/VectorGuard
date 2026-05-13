@@ -77,6 +77,43 @@ public struct VectorGuardConfiguration: Sendable {
     public var headingChangedThreshold: Double = 15.0
     
     // MARK: - Init
-    
+
     public init() {}
+
+    // MARK: - Presets
+
+    /// High-sensitivity profile. Reacts quickly to even small movements.
+    ///
+    /// Suited for anti-theft scenarios where any motion must be caught.
+    public static var sensitive: VectorGuardConfiguration {
+        var c = VectorGuardConfiguration()
+        c.movementThreshold            = 0.04
+        c.movementConfirmationSamples  = 2
+        c.rapidMovementThreshold       = 1.0
+        c.jigglingGyroThreshold        = 0.8
+        c.jigglingReversalCount        = 3
+        c.headingChangedThreshold      = 8.0
+        return c
+    }
+
+    /// Balanced profile — the default thresholds.
+    ///
+    /// Good for general-purpose use in a pocket or bag.
+    public static var balanced: VectorGuardConfiguration {
+        VectorGuardConfiguration()
+    }
+
+    /// Low-sensitivity profile. Filters out minor environmental vibration.
+    ///
+    /// Suited for devices mounted in vehicles or in high-vibration environments.
+    public static var relaxed: VectorGuardConfiguration {
+        var c = VectorGuardConfiguration()
+        c.movementThreshold            = 0.15
+        c.movementConfirmationSamples  = 5
+        c.rapidMovementThreshold       = 2.5
+        c.jigglingGyroThreshold        = 2.0
+        c.jigglingReversalCount        = 6
+        c.headingChangedThreshold      = 30.0
+        return c
+    }
 }

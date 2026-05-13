@@ -74,7 +74,9 @@ public final class VectorGuard {
     public weak var delegate: VectorGuardDelegate?
 
     /// The most recently inferred motion state.
-    public private(set) var currentState: MotionState = .idle
+    ///
+    /// Reads directly from the analyzer 
+    public var currentState: MotionState { analyzer.currentState }
 
     /// Whether the library is actively collecting sensor data.
     public private(set) var isMonitoring = false
@@ -166,9 +168,11 @@ public final class VectorGuard {
             }
         }
 
-        compassManager.startUpdates { [weak self] heading in
-            self?.lastHeading = heading
-            self?.analyzer.process(heading: heading)
+        if compassManager.isAvailable {
+            compassManager.startUpdates { [weak self] heading in
+                self?.lastHeading = heading
+                self?.analyzer.process(heading: heading)
+            }
         }
     }
 
@@ -206,6 +210,7 @@ public final class VectorGuard {
     /// ```
     public func subscribe() -> AsyncStream<VectorGuardEvent> {
         let id = UUID()
+        let snapshotState = currentState
         // Capture the continuation synchronously so we can store it before any events fire.
         var localContinuation: AsyncStream<VectorGuardEvent>.Continuation?
         let stream = AsyncStream<VectorGuardEvent> { continuation in
@@ -213,6 +218,11 @@ public final class VectorGuard {
         }
         if let continuation = localContinuation {
             subscribers[id] = continuation
+            // Late-subscriber replay: immediately deliver the current state so callers
+            // that subscribe after startMonitoring() are never blind to ongoing motion.
+            if isMonitoring && snapshotState != .idle {
+                continuation.yield(.stateChanged(from: .idle, to: snapshotState))
+            }
             continuation.onTermination = { [weak self] _ in
                 // onTermination may be called from any thread — hop to MainActor to mutate state.
                 Task { @MainActor [weak self] in
@@ -221,6 +231,29 @@ public final class VectorGuard {
             }
         }
         return stream
+    }
+
+    /// Returns an `AsyncStream` that delivers only events matching `predicate`.
+    ///
+    /// Built on top of ``subscribe()`` — inherits the same fan-out and lifecycle semantics.
+    ///
+    /// ```swift
+    /// Task {
+    ///     for await event in VectorGuard.shared.subscribe(where: { $0 == .devicePickedUp }) {
+    ///         triggerAlarm()
+    ///     }
+    /// }
+    /// ```
+    public func subscribe(where predicate: @escaping @Sendable (VectorGuardEvent) -> Bool) -> AsyncStream<VectorGuardEvent> {
+        let base = subscribe()
+        return AsyncStream { continuation in
+            Task {
+                for await event in base where predicate(event) {
+                    continuation.yield(event)
+                }
+                continuation.finish()
+            }
+        }
     }
 
     /// Returns an `AsyncStream` that delivers a ``SensorReading`` on every motion sensor frame.
@@ -257,14 +290,40 @@ public final class VectorGuard {
         return stream
     }
 
+    /// Returns a throttled `AsyncStream` of ``SensorReading`` values.
+    ///
+    /// Frames arriving faster than `interval` seconds are dropped, keeping only
+    /// the most recent one that falls outside the window. Useful for driving SwiftUI
+    /// views where 20 Hz updates would cause unnecessary redraws.
+    ///
+    /// ```swift
+    /// Task {
+    ///     for await reading in VectorGuard.shared.monitorSensors(throttle: 0.1) { // 10 Hz
+    ///         updateUI(reading)
+    ///     }
+    /// }
+    /// ```
+    public func monitorSensors(throttle interval: TimeInterval) -> AsyncStream<SensorReading> {
+        let base = monitorSensors()
+        return AsyncStream { continuation in
+            Task {
+                var lastTimestamp: TimeInterval = -.infinity
+                for await reading in base {
+                    if reading.timestamp - lastTimestamp >= interval {
+                        continuation.yield(reading)
+                        lastTimestamp = reading.timestamp
+                    }
+                }
+                continuation.finish()
+            }
+        }
+    }
+
     // MARK: - Private: Broadcasting
 
     private func broadcast(event: VectorGuardEvent) {
         // Drop any in-flight callbacks that arrived after stopMonitoring() was called.
         guard isMonitoring else { return }
-        if case .stateChanged(_, let newState) = event {
-            currentState = newState
-        }
         lastEvent     = event
         lastEventDate = Date()
         // Deliver to single delegate
