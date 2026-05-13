@@ -93,13 +93,15 @@ public final class VectorGuard {
     /// ```
     public var status: VectorGuardStatus {
         VectorGuardStatus(
-            isMonitoring:    isMonitoring,
-            currentState:    currentState,
-            lastAcceleration: lastAcceleration,
-            lastGyroscope:   lastGyroscope,
-            lastHeading:     lastHeading,
-            lastEvent:       lastEvent,
-            lastEventDate:   lastEventDate
+            isMonitoring:        isMonitoring,
+            currentState:        currentState,
+            lastAcceleration:    lastAcceleration,
+            lastGyroscope:       lastGyroscope,
+            lastHeading:         lastHeading,
+            lastPressure:        lastPressure,
+            lastRelativeAltitude: lastRelativeAltitude,
+            lastEvent:           lastEvent,
+            lastEventDate:       lastEventDate
         )
     }
 
@@ -113,6 +115,15 @@ public final class VectorGuard {
 
     /// Most recent compass heading in degrees (0–360). Updated on every heading callback.
     public private(set) var lastHeading: Double?
+
+    /// Most recent barometric pressure in kilopascals.
+    public private(set) var lastPressure: Double?
+
+    /// Relative altitude in metres since monitoring started.
+    public private(set) var lastRelativeAltitude: Double?
+
+    /// Altitude (metres) at which the last altitudeChanged event was emitted.
+    private var lastEventAltitude: Double?
 
     /// Most recently emitted event.
     public private(set) var lastEvent: VectorGuardEvent?
@@ -130,9 +141,10 @@ public final class VectorGuard {
 
     // MARK: - Internal: Sensor Components
 
-    private let motionManager  = MotionSensorManager()
-    private let compassManager = CompassSensorManager()
-    private lazy var analyzer  = MotionAnalyzer(configuration: configuration)
+    private let motionManager    = MotionSensorManager()
+    private let compassManager   = CompassSensorManager()
+    private let barometerManager = BarometerSensorManager()
+    private lazy var analyzer    = MotionAnalyzer(configuration: configuration)
 
     // MARK: - Init
 
@@ -157,11 +169,13 @@ public final class VectorGuard {
             self.lastGyroscope    = gyro.rotationRate
             self.analyzer.process(accelerometer: accel, gyroscope: gyro)
             let reading = SensorReading(
-                acceleration: accel.userAcceleration,
-                gyroscope:    gyro.rotationRate,
-                heading:      self.lastHeading,
-                timestamp:    accel.timestamp,
-                state:        self.currentState
+                acceleration:     accel.userAcceleration,
+                gyroscope:        gyro.rotationRate,
+                heading:          self.lastHeading,
+                timestamp:        accel.timestamp,
+                state:            self.currentState,
+                pressure:         self.lastPressure,
+                relativeAltitude: self.lastRelativeAltitude
             )
             for continuation in self.sensorSubscribers.values {
                 continuation.yield(reading)
@@ -172,6 +186,20 @@ public final class VectorGuard {
             compassManager.startUpdates { [weak self] heading in
                 self?.lastHeading = heading
                 self?.analyzer.process(heading: heading)
+            }
+        }
+
+        if barometerManager.isAvailable {
+            barometerManager.startUpdates { [weak self] pressure, altitude in
+                guard let self else { return }
+                self.lastPressure         = pressure
+                self.lastRelativeAltitude = altitude
+                let base  = self.lastEventAltitude ?? altitude
+                let delta = altitude - base
+                if abs(delta) >= self.configuration.altitudeChangeThreshold {
+                    self.lastEventAltitude = altitude
+                    self.broadcast(event: .altitudeChanged(delta: delta, pressure: pressure))
+                }
             }
         }
     }
@@ -185,6 +213,8 @@ public final class VectorGuard {
         isMonitoring = false
         motionManager.stopUpdates()
         compassManager.stopUpdates()
+        barometerManager.stopUpdates()
+        lastEventAltitude = nil
         finishAllStreams()
     }
 

@@ -29,4 +29,11 @@ public enum VectorGuardEvent: Sendable {
 
     /// Device transitioned from moving to idle (put-down event.)
     case devicePutDown
+
+    /// Relative altitude changed by more than ``VectorGuardConfiguration/altitudeChangeThreshold``.
+    ///
+    /// - Parameters:
+    ///   - delta: Change in metres since the last emitted altitude event (positive = up, negative = down).
+    ///   - pressure: Current barometric pressure in kilopascals.
+    case altitudeChanged(delta: Double, pressure: Double)
 }

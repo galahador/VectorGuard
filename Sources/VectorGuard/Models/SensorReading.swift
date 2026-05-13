@@ -39,4 +39,14 @@ public struct SensorReading: Sendable {
 
     /// Motion state inferred by VectorGuard at the time this frame was processed.
     public let state: MotionState
+
+    /// Most recent barometric pressure in kilopascals.
+    ///
+    /// `nil` on devices without a barometer or before the first barometer update.
+    public let pressure: Double?
+
+    /// Relative altitude in metres since monitoring started.
+    ///
+    /// `nil` on devices without a barometer or before the first barometer update.
+    public let relativeAltitude: Double?
 }
