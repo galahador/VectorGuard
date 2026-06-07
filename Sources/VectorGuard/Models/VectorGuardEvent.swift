@@ -21,8 +21,11 @@ public enum VectorGuardEvent: Sendable, Equatable {
     /// A sharp angular-velocity spike was detected (rapid twist or flip).
     case rotationSpike(magnitude: Double, vector: SensorVector)
 
-    /// Compass heading changed by more than ``VectorGuardConfiguration/headingChangedThreshold``.
-    case headingChanged(current: Double, delta: Double)
+    /// Cumulative compass-heading rotation (since the last emitted heading event) crossed one
+    case headingChanged(current: Double, delta: Double, threshold: Double)
+
+    /// Device orientation (pitch/roll/yaw) changed by more than
+    case attitudeChanged(current: DeviceAttitude, delta: DeviceAttitude)
 
     /// Device transitioned from idle to moving (pick-up event.)
     case devicePickedUp
@@ -31,14 +34,7 @@ public enum VectorGuardEvent: Sendable, Equatable {
     case devicePutDown
 
     /// Repeated direction reversals were detected — someone is shaking or jiggling the device
-    /// (e.g. attempting to unlock it). Fired once when the `.jiggling` state is entered;
-    /// see ``stateChanged(from:to:)`` for the corresponding state transition.
     case jigglingDetected
 
-    /// Relative altitude changed by more than ``VectorGuardConfiguration/altitudeChangeThreshold``.
-    ///
-    /// - Parameters:
-    ///   - delta: Change in metres since the last emitted altitude event (positive = up, negative = down).
-    ///   - pressure: Current barometric pressure in kilopascals.
     case altitudeChanged(delta: Double, pressure: Double)
 }

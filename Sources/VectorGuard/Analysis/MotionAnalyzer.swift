@@ -43,9 +43,15 @@ final class MotionAnalyzer {
     private var prevGyroSign = (x: 0, y: 0, z: 0)
     
     // MARK: - Internal: Compass
+
+    private var smoothedHeadingVector: (cos: Double, sin: Double)?
     
-    private var lastHeading: Double?
-    
+    private var lastEmittedHeading: Double?
+
+    // MARK: - Internal: Attitude
+
+    private var lastAttitude: DeviceAttitude?
+
     // MARK: - Init
     init(configuration: VectorGuardConfiguration) {
         self.configuration = configuration
@@ -56,20 +62,65 @@ final class MotionAnalyzer {
     
     // MARK: - Processing
     
-    func process(accelerometer: AccelerometerSample, gyroscope: GyroscopeSample) {
+    func process(accelerometer: AccelerometerSample, gyroscope: GyroscopeSample, attitude: DeviceAttitude) {
         processAccelerometer(accelerometer)
         processGyroscope(gyroscope)
+        processAttitude(attitude)
     }
-    
-    func process(heading: Double) {
-        guard let last = lastHeading else { lastHeading = heading; return }
-        var delta = heading - last
+
+    func process(heading rawHeading: Double) {
+        let heading = smoothed(heading: rawHeading)
+        guard let last = lastEmittedHeading else { lastEmittedHeading = heading; return }
+        let delta = Self.angularDelta(from: last, to: heading)
+        let thresholds = configuration.headingChangeThresholds
+        if let crossed = thresholds.filter({ abs(delta) >= $0 }).max() {
+            emit(.headingChanged(current: heading, delta: delta, threshold: crossed))
+            lastEmittedHeading = heading
+        }
+    }
+
+    // MARK: - Private: Attitude
+
+    private func processAttitude(_ attitude: DeviceAttitude) {
+        guard let last = lastAttitude else { lastAttitude = attitude; return }
+        let deltaPitch = attitude.pitch - last.pitch
+        let deltaRoll  = Self.angularDelta(from: last.roll, to: attitude.roll)
+        let deltaYaw   = Self.angularDelta(from: last.yaw, to: attitude.yaw)
+        let magnitude  = (deltaPitch * deltaPitch + deltaRoll * deltaRoll + deltaYaw * deltaYaw).squareRoot()
+        if magnitude >= configuration.attitudeChangeThreshold {
+            emit(.attitudeChanged(
+                current: attitude,
+                delta: DeviceAttitude(pitch: deltaPitch, roll: deltaRoll, yaw: deltaYaw)
+            ))
+            lastAttitude = attitude
+        }
+    }
+
+    private func smoothed(heading rawHeading: Double) -> Double {
+        let radians = rawHeading * .pi / 180
+        let sample  = (cos: cos(radians), sin: sin(radians))
+        let factor  = configuration.headingSmoothingFactor
+        let blended: (cos: Double, sin: Double)
+        if let prev = smoothedHeadingVector {
+            blended = (
+                cos: factor * sample.cos + (1 - factor) * prev.cos,
+                sin: factor * sample.sin + (1 - factor) * prev.sin
+            )
+        } else {
+            blended = sample
+        }
+        smoothedHeadingVector = blended
+        var degrees = atan2(blended.sin, blended.cos) * 180 / .pi
+        if degrees < 0 { degrees += 360 }
+        return degrees
+    }
+
+    /// Shortest signed angular distance from `a` to `b`, in degrees, wrapped to `-180...180`.
+    private static func angularDelta(from a: Double, to b: Double) -> Double {
+        var delta = b - a
         if delta >  180 { delta -= 360 }
         if delta < -180 { delta += 360 }
-        if abs(delta) >= configuration.headingChangedThreshold {
-            emit(.headingChanged(current: heading, delta: delta))
-            lastHeading = heading
-        }
+        return delta
     }
     
     // MARK: - Private: Accelerometer

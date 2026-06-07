@@ -62,10 +62,19 @@ public struct VectorGuardStatus: Sendable {
     /// `nil` until the first sensor frame arrives after ``VectorGuard/startMonitoring()``.
     public let lastGyroscope: SensorVector?
 
+    /// The most recent device orientation (pitch/roll/yaw, in degrees).
+    ///
+    /// `nil` until the first sensor frame arrives after ``VectorGuard/startMonitoring()``.
+    public let lastAttitude: DeviceAttitude?
+
     /// The most recent compass heading in degrees (0–360, magnetic north).
     ///
     /// `nil` on devices without a compass, or before the first heading update.
     public let lastHeading: Double?
+
+    public let lastTrueHeading: Double?
+
+    public let lastHeadingAccuracy: Double?
 
     /// The most recent barometric pressure in kilopascals.
     ///
@@ -96,7 +105,10 @@ public struct VectorGuardStatus: Sendable {
         currentState: MotionState,
         lastAcceleration: SensorVector?,
         lastGyroscope: SensorVector?,
+        lastAttitude: DeviceAttitude?,
         lastHeading: Double?,
+        lastTrueHeading: Double?,
+        lastHeadingAccuracy: Double?,
         lastPressure: Double?,
         lastRelativeAltitude: Double?,
         lastEvent: VectorGuardEvent?,
@@ -106,7 +118,10 @@ public struct VectorGuardStatus: Sendable {
         self.currentState        = currentState
         self.lastAcceleration    = lastAcceleration
         self.lastGyroscope       = lastGyroscope
+        self.lastAttitude        = lastAttitude
         self.lastHeading         = lastHeading
+        self.lastTrueHeading     = lastTrueHeading
+        self.lastHeadingAccuracy = lastHeadingAccuracy
         self.lastPressure        = lastPressure
         self.lastRelativeAltitude = lastRelativeAltitude
         self.lastEvent           = lastEvent

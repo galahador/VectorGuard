@@ -27,6 +27,17 @@ struct GyroscopeSample: Sendable {
     let timestamp: TimeInterval
 }
 
+private let radiansToDegrees = 180.0 / Double.pi
+
+/// Converts `CMAttitude` (radians) to ``DeviceAttitude`` (degrees).
+func makeDeviceAttitude(pitch: Double, roll: Double, yaw: Double) -> DeviceAttitude {
+    DeviceAttitude(
+        pitch: pitch * radiansToDegrees,
+        roll:  roll  * radiansToDegrees,
+        yaw:   yaw   * radiansToDegrees
+    )
+}
+
 // MARK: - Manager
 
 #if os(iOS)
@@ -48,7 +59,7 @@ final class MotionSensorManager: @unchecked Sendable {
 
     func startUpdates(
         interval: TimeInterval,
-        handler: @escaping @MainActor (AccelerometerSample, GyroscopeSample) -> Void
+        handler: @escaping @MainActor (AccelerometerSample, GyroscopeSample, DeviceAttitude) -> Void
     ) {
         guard motionManager.isDeviceMotionAvailable else { return }
         motionManager.deviceMotionUpdateInterval = interval
@@ -75,10 +86,15 @@ final class MotionSensorManager: @unchecked Sendable {
                 ),
                 timestamp: motion.timestamp
             )
+            let attitude = makeDeviceAttitude(
+                pitch: motion.attitude.pitch,
+                roll:  motion.attitude.roll,
+                yaw:   motion.attitude.yaw
+            )
             // CMMotionManager guarantees callbacks on `.main` arrive on the main thread,
             // in order — safe to assert main-actor isolation and call synchronously rather
             // than hopping through an unstructured Task (which would not preserve order).
-            MainActor.assumeIsolated { handler(accel, gyro) }
+            MainActor.assumeIsolated { handler(accel, gyro, attitude) }
         }
     }
 
@@ -94,7 +110,7 @@ final class MotionSensorManager: @unchecked Sendable {
     var isAvailable: Bool { false }
     func startUpdates(
         interval: TimeInterval,
-        handler: @escaping @MainActor (AccelerometerSample, GyroscopeSample) -> Void
+        handler: @escaping @MainActor (AccelerometerSample, GyroscopeSample, DeviceAttitude) -> Void
     ) {}
     func stopUpdates() {}
 }
