@@ -132,8 +132,6 @@ It combines data from multiple hardware sensors including:
 - Magnetometer
 - Device Motion
 - Compass
-- Proximity Sensor
-- Ambient Light
 - Barometer
 
 ---
