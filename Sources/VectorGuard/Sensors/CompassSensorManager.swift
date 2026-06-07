@@ -13,7 +13,9 @@ import CoreLocation
 
 /// Internal wrapper around `CLLocationManager` for compass / magnetic-heading data.
 ///
-/// All callbacks are dispatched to the **main actor**.
+/// `startUpdates` is always invoked on the main actor (see ``VectorGuard``), so
+/// `CLLocationManager` delivers its delegate callbacks on the main run loop, in order —
+/// safe to assert main-actor isolation and call the handler synchronously.
 final class CompassSensorManager: NSObject, @unchecked Sendable {
 
     private let locationManager = CLLocationManager()
@@ -44,7 +46,7 @@ extension CompassSensorManager: CLLocationManagerDelegate {
         guard newHeading.headingAccuracy >= 0 else { return }
         let degrees = newHeading.magneticHeading
         let handler = headingHandler
-        Task { @MainActor in handler?(degrees) }
+        MainActor.assumeIsolated { handler?(degrees) }
     }
 }
 

@@ -32,21 +32,17 @@ struct GyroscopeSample: Sendable {
 #if os(iOS)
 
 import CoreMotion
-/// - All callbacks are dispatched back to the **main actor**.
+/// - Updates are delivered on `OperationQueue.main`, which guarantees both main-actor
+///   isolation and **in-order delivery** — critical, since ``MotionAnalyzer`` relies on
+///   monotonically increasing timestamps for debouncing and windowed detection. Routing
+///   through a background queue and hopping back via unstructured `Task`s would not
+///   preserve that ordering.
 /// - Uses `CMDeviceMotion` fusion which provides both gravity-subtracted user
 ///   acceleration and gyroscope rotation rate in a single subscription,
 ///   reducing battery impact vs. two separate subscriptions.
 final class MotionSensorManager: @unchecked Sendable {
 
     private let motionManager = CMMotionManager()
-
-    private let queue: OperationQueue = {
-        let q = OperationQueue()
-        q.name = "com.vectorguard.motion"
-        q.qualityOfService = .userInteractive
-        q.maxConcurrentOperationCount = 1
-        return q
-    }()
 
     var isAvailable: Bool { motionManager.isDeviceMotionAvailable }
 
@@ -56,7 +52,7 @@ final class MotionSensorManager: @unchecked Sendable {
     ) {
         guard motionManager.isDeviceMotionAvailable else { return }
         motionManager.deviceMotionUpdateInterval = interval
-        motionManager.startDeviceMotionUpdates(to: queue) { motion, error in
+        motionManager.startDeviceMotionUpdates(to: .main) { motion, error in
             guard let motion, error == nil else { return }
             let accel = AccelerometerSample(
                 userAcceleration: SensorVector(
@@ -79,7 +75,10 @@ final class MotionSensorManager: @unchecked Sendable {
                 ),
                 timestamp: motion.timestamp
             )
-            Task { @MainActor in handler(accel, gyro) }
+            // CMMotionManager guarantees callbacks on `.main` arrive on the main thread,
+            // in order — safe to assert main-actor isolation and call synchronously rather
+            // than hopping through an unstructured Task (which would not preserve order).
+            MainActor.assumeIsolated { handler(accel, gyro) }
         }
     }
 

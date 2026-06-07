@@ -13,7 +13,8 @@ import CoreMotion
 
 /// Internal wrapper around `CMAltimeter` for barometric pressure and relative altitude.
 ///
-/// All callbacks are dispatched to the **main actor**.
+/// Updates are delivered on `.main`, which guarantees both main-actor isolation and
+/// in-order delivery.
 /// No Info.plist key is required.
 final class BarometerSensorManager: @unchecked Sendable {
 
@@ -31,7 +32,9 @@ final class BarometerSensorManager: @unchecked Sendable {
             guard let data, error == nil else { return }
             let pressure         = data.pressure.doubleValue          // kPa
             let relativeAltitude = data.relativeAltitude.doubleValue  // metres
-            Task { @MainActor in handler(pressure, relativeAltitude) }
+            // CMAltimeter guarantees callbacks on `.main` arrive on the main thread, in
+            // order — safe to assert main-actor isolation and call synchronously.
+            MainActor.assumeIsolated { handler(pressure, relativeAltitude) }
         }
     }
 

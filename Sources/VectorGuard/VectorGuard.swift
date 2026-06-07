@@ -50,7 +50,9 @@ import Foundation
 /// VectorGuard.shared.startMonitoring()
 /// ```
 ///
-/// > Note: VectorGuard requires no special Info.plist keys for motion or heading data. <---- Check this before realease! 
+/// > Note: Motion (`NSMotionUsageDescription`) and heading (`NSLocationWhenInUseUsageDescription`)
+/// > each require a key in your app's Info.plist. The barometer requires no key. See the
+/// > "Privacy Permissions" section of the README for the exact strings to add.
 @MainActor
 public final class VectorGuard {
 
@@ -227,20 +229,23 @@ public final class VectorGuard {
     /// - ``stopMonitoring()`` is called, or
     /// - the subscriber's `Task` is cancelled.
     ///
+    /// > Note: Subscribing only delivers events emitted *after* the call. If you need to know
+    /// > the motion state at the moment you subscribe, read ``status`` (or ``currentState``)
+    /// > directly — it returns an accurate snapshot without waiting for the next event.
+    ///
     /// ```swift
     /// Task {
     ///     for await event in VectorGuard.shared.subscribe() {
     ///         switch event {
-    ///         case .devicePickedUp:  lockApp()
-    ///         case .jiggling:        triggerAlert()
-    ///         default:               break
+    ///         case .devicePickedUp:    lockApp()
+    ///         case .jigglingDetected:  triggerAlert()
+    ///         default:                 break
     ///         }
     ///     }
     /// }
     /// ```
     public func subscribe() -> AsyncStream<VectorGuardEvent> {
         let id = UUID()
-        let snapshotState = currentState
         // Capture the continuation synchronously so we can store it before any events fire.
         var localContinuation: AsyncStream<VectorGuardEvent>.Continuation?
         let stream = AsyncStream<VectorGuardEvent> { continuation in
@@ -248,11 +253,6 @@ public final class VectorGuard {
         }
         if let continuation = localContinuation {
             subscribers[id] = continuation
-            // Late-subscriber replay: immediately deliver the current state so callers
-            // that subscribe after startMonitoring() are never blind to ongoing motion.
-            if isMonitoring && snapshotState != .idle {
-                continuation.yield(.stateChanged(from: .idle, to: snapshotState))
-            }
             continuation.onTermination = { [weak self] _ in
                 // onTermination may be called from any thread — hop to MainActor to mutate state.
                 Task { @MainActor [weak self] in

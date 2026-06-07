@@ -134,6 +134,7 @@ final class MotionAnalyzer {
             let quickSettle = max(3, idleSampleTarget / 3)
             if elapsed >= configuration.idleTimeout || idleCount >= quickSettle {
                 transition(to: .idle)
+                emit(.devicePutDown)
             } else if movingCount >= configuration.movementConfirmationSamples {
                 transition(to: .moving(intensity: magnitude))
             }
@@ -173,6 +174,7 @@ final class MotionAnalyzer {
         if reversalTimestamps.count >= configuration.jigglingReversalCount,
            currentState != .jiggling {
             transition(to: .jiggling)
+            emit(.jigglingDetected)
             reversalTimestamps.removeAll()   // reset after triggering
         }
     }

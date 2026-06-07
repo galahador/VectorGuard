@@ -10,7 +10,7 @@ import Foundation
 /// A discrete event emitted by VectorGuard.
 ///
 /// All events are delivered on the **main thread** via ``VectorGuardDelegate``.
-public enum VectorGuardEvent: Sendable {
+public enum VectorGuardEvent: Sendable, Equatable {
 
     /// The inferred motion state changed.
     case stateChanged(from: MotionState, to: MotionState)
@@ -29,6 +29,11 @@ public enum VectorGuardEvent: Sendable {
 
     /// Device transitioned from moving to idle (put-down event.)
     case devicePutDown
+
+    /// Repeated direction reversals were detected — someone is shaking or jiggling the device
+    /// (e.g. attempting to unlock it). Fired once when the `.jiggling` state is entered;
+    /// see ``stateChanged(from:to:)`` for the corresponding state transition.
+    case jigglingDetected
 
     /// Relative altitude changed by more than ``VectorGuardConfiguration/altitudeChangeThreshold``.
     ///
