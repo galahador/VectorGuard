@@ -158,11 +158,50 @@ It combines data from multiple hardware sensors including:
 | Event | When it fires |
 |---|---|
 | `.devicePickedUp` | Device transitions from idle → moving or grabbed suddenly |
-| `.devicePutDown` | Device transitions from moving/jiggling → idle |
+| `.devicePutDown` | Device transitions from moving/rapid-movement/jiggling → idle |
 | `.accelerationSpike(magnitude:vector:)` | Sharp linear-acceleration above threshold (grab / drop / throw) |
 | `.rotationSpike(magnitude:vector:)` | Sharp angular-velocity spike (rapid twist or flip) |
-| `.headingChanged(current:delta:)` | Compass heading changed beyond configured threshold |
+| `.jigglingDetected` | Repeated direction reversals — someone is shaking the device |
+| `.headingChanged(current:delta:threshold:)` | Cumulative compass rotation crossed one of the configured tiers |
+| `.attitudeChanged(current:delta:)` | Device orientation (pitch/roll/yaw) changed beyond threshold |
+| `.altitudeChanged(delta:pressure:)` | Relative altitude changed beyond threshold (barometer) |
 | `.stateChanged(from:to:)` | Any motion-state transition |
+
+## Angle & Orientation Detection
+
+VectorGuard tracks rotation from two independent sources, each with its own tunables:
+
+- **Compass heading** (`headingChanged`) — absolute rotation relative to magnetic/true north.
+  Raw compass readings are noisy, so VectorGuard smooths them on the unit circle (no
+  discontinuity at the 0°/360° wrap) before measuring deltas — tune the strength with
+  `headingSmoothingFactor` (`0...1`; lower = steadier but slower to react). Rather than a
+  single on/off threshold, `headingChangeThresholds` accepts an ascending list of degree
+  values (default `[15, 45, 120]`); the emitted event reports the *highest* tier the
+  cumulative rotation reached, so one subscription can distinguish a small drift from a
+  sharp spin via `event`'s `threshold` payload.
+
+- **Device attitude** (`attitudeChanged`) — pitch / roll / yaw from `CMDeviceMotion`,
+  exposed as ``DeviceAttitude`` (degrees). Useful for orientation changes a compass can't
+  see, e.g. a phone flipped face-down or tipped out of a pocket. Fires when the combined
+  per-axis change (Euclidean norm) exceeds `attitudeChangeThreshold` (default `20°`).
+
+```swift
+Task {
+    for await event in VectorGuard.shared.subscribe() {
+        switch event {
+        case .headingChanged(let current, let delta, let threshold):
+            print("Rotated \(delta)° (now \(current)°) — crossed the \(threshold)° tier")
+        case .attitudeChanged(let current, _):
+            print("Orientation → pitch \(current.pitch)°, roll \(current.roll)°, yaw \(current.yaw)°")
+        default:
+            break
+        }
+    }
+}
+```
+
+`status.lastHeading` / `lastTrueHeading` / `lastHeadingAccuracy` and `status.lastAttitude`
+expose the current readings as a point-in-time snapshot — see ``VectorGuardStatus``.
 
 Motion states exposed via `VectorGuard.shared.status.currentState`:
 

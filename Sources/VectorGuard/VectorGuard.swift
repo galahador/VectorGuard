@@ -7,50 +7,6 @@
 
 import Foundation
 
-/// The primary entry point for the VectorGuard library.
-///
-/// VectorGuard continuously analyses accelerometer, gyroscope, and compass data
-/// to detect motion patterns useful for anti-theft scenarios:
-///
-/// - **Idle / Moving** — is the device stationary or being carried?
-/// - **Rapid movement** — was the device suddenly grabbed, dropped, or thrown?
-/// - **Jiggling** — is someone shaking the device (e.g. trying to unlock it)?
-/// - **Heading change** — was the device rotated significantly?
-///
-/// ## Subscribing to events (recommended — supports multiple subscribers)
-///
-/// Any number of independent parts of your app can subscribe simultaneously.
-/// Each gets every event; cancelling one does not affect the others.
-///
-/// ```swift
-/// VectorGuard.shared.startMonitoring()
-///
-/// // Alarm screen
-/// Task {
-///     for await event in VectorGuard.shared.subscribe() {
-///         if case .devicePickedUp = event { triggerAlarm() }
-///     }
-/// }
-///
-/// // Logging service — independent subscription, same events
-/// Task {
-///     for await event in VectorGuard.shared.subscribe() {
-///         logger.record(event)
-///     }
-/// }
-/// ```
-///
-/// Streams finish automatically when ``stopMonitoring()`` is called,
-/// or when the subscriber's `Task` is cancelled.
-///
-/// ## Single-delegate (simple cases)
-///
-/// ```swift
-/// VectorGuard.shared.delegate = self   // only one object at a time
-/// VectorGuard.shared.startMonitoring()
-/// ```
-///
-/// > Note: VectorGuard requires no special Info.plist keys for motion or heading data. <---- Check this before realease! 
 @MainActor
 public final class VectorGuard {
 
@@ -97,7 +53,10 @@ public final class VectorGuard {
             currentState:        currentState,
             lastAcceleration:    lastAcceleration,
             lastGyroscope:       lastGyroscope,
+            lastAttitude:        lastAttitude,
             lastHeading:         lastHeading,
+            lastTrueHeading:     lastTrueHeading,
+            lastHeadingAccuracy: lastHeadingAccuracy,
             lastPressure:        lastPressure,
             lastRelativeAltitude: lastRelativeAltitude,
             lastEvent:           lastEvent,
@@ -113,8 +72,21 @@ public final class VectorGuard {
     /// Most recent rotation-rate vector (rad/s). Updated on every sensor frame.
     public private(set) var lastGyroscope: SensorVector?
 
-    /// Most recent compass heading in degrees (0–360). Updated on every heading callback.
+    /// Most recent device orientation (pitch/roll/yaw, degrees). Updated on every sensor frame.
+    public private(set) var lastAttitude: DeviceAttitude?
+
+    /// Most recent compass heading relative to magnetic north, in degrees (0–360).
+    /// Updated on every heading callback.
     public private(set) var lastHeading: Double?
+
+    /// Most recent compass heading relative to true (geographic) north, in degrees (0–360).
+    ///
+    /// `nil` when true-north correction is unavailable (requires location services to
+    /// resolve the local geomagnetic declination).
+    public private(set) var lastTrueHeading: Double?
+
+    /// Estimated accuracy of ``lastHeading``/``lastTrueHeading``, in degrees. Lower is better.
+    public private(set) var lastHeadingAccuracy: Double?
 
     /// Most recent barometric pressure in kilopascals.
     public private(set) var lastPressure: Double?
@@ -163,15 +135,19 @@ public final class VectorGuard {
         guard !isMonitoring else { return }
         isMonitoring = true
 
-        motionManager.startUpdates(interval: configuration.sensorUpdateInterval) { [weak self] accel, gyro in
+        motionManager.startUpdates(interval: configuration.sensorUpdateInterval) { [weak self] accel, gyro, attitude in
             guard let self else { return }
             self.lastAcceleration = accel.userAcceleration
             self.lastGyroscope    = gyro.rotationRate
-            self.analyzer.process(accelerometer: accel, gyroscope: gyro)
+            self.lastAttitude     = attitude
+            self.analyzer.process(accelerometer: accel, gyroscope: gyro, attitude: attitude)
             let reading = SensorReading(
                 acceleration:     accel.userAcceleration,
                 gyroscope:        gyro.rotationRate,
+                attitude:         attitude,
                 heading:          self.lastHeading,
+                trueHeading:      self.lastTrueHeading,
+                headingAccuracy:  self.lastHeadingAccuracy,
                 timestamp:        accel.timestamp,
                 state:            self.currentState,
                 pressure:         self.lastPressure,
@@ -183,9 +159,12 @@ public final class VectorGuard {
         }
 
         if compassManager.isAvailable {
-            compassManager.startUpdates { [weak self] heading in
-                self?.lastHeading = heading
-                self?.analyzer.process(heading: heading)
+            compassManager.startUpdates { [weak self] sample in
+                guard let self else { return }
+                self.lastHeading         = sample.magneticHeading
+                self.lastTrueHeading     = sample.trueHeading
+                self.lastHeadingAccuracy = sample.accuracy
+                self.analyzer.process(heading: sample.magneticHeading)
             }
         }
 
@@ -227,20 +206,23 @@ public final class VectorGuard {
     /// - ``stopMonitoring()`` is called, or
     /// - the subscriber's `Task` is cancelled.
     ///
+    /// > Note: Subscribing only delivers events emitted *after* the call. If you need to know
+    /// > the motion state at the moment you subscribe, read ``status`` (or ``currentState``)
+    /// > directly — it returns an accurate snapshot without waiting for the next event.
+    ///
     /// ```swift
     /// Task {
     ///     for await event in VectorGuard.shared.subscribe() {
     ///         switch event {
-    ///         case .devicePickedUp:  lockApp()
-    ///         case .jiggling:        triggerAlert()
-    ///         default:               break
+    ///         case .devicePickedUp:    lockApp()
+    ///         case .jigglingDetected:  triggerAlert()
+    ///         default:                 break
     ///         }
     ///     }
     /// }
     /// ```
     public func subscribe() -> AsyncStream<VectorGuardEvent> {
         let id = UUID()
-        let snapshotState = currentState
         // Capture the continuation synchronously so we can store it before any events fire.
         var localContinuation: AsyncStream<VectorGuardEvent>.Continuation?
         let stream = AsyncStream<VectorGuardEvent> { continuation in
@@ -248,11 +230,6 @@ public final class VectorGuard {
         }
         if let continuation = localContinuation {
             subscribers[id] = continuation
-            // Late-subscriber replay: immediately deliver the current state so callers
-            // that subscribe after startMonitoring() are never blind to ongoing motion.
-            if isMonitoring && snapshotState != .idle {
-                continuation.yield(.stateChanged(from: .idle, to: snapshotState))
-            }
             continuation.onTermination = { [weak self] _ in
                 // onTermination may be called from any thread — hop to MainActor to mutate state.
                 Task { @MainActor [weak self] in

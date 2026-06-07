@@ -29,10 +29,24 @@ public struct SensorReading: Sendable {
     /// Angular velocity vector from the gyroscope rad/s
     public let gyroscope: SensorVector
 
+    /// Device orientation (pitch/roll/yaw, in degrees) at the time of this frame.
+    public let attitude: DeviceAttitude
+
     /// Most recent compass heading in degrees 0–360, magnetic north
     ///
     /// `nil` on devices without a compass or before the first heading update.
     public let heading: Double?
+
+    /// Most recent compass heading in degrees 0–360, true (geographic) north.
+    ///
+    /// `nil` on devices without a compass, before the first heading update, or when
+    /// true-north correction is unavailable.
+    public let trueHeading: Double?
+
+    /// Estimated accuracy of ``heading``/``trueHeading``, in degrees. Lower is better.
+    ///
+    /// `nil` on devices without a compass or before the first heading update.
+    public let headingAccuracy: Double?
 
     /// CoreMotion timestamp of this frame (seconds since device boot).
     public let timestamp: TimeInterval

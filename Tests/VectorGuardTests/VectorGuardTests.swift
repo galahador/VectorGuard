@@ -159,7 +159,8 @@ struct MotionAnalyzerTests {
         for i in 0..<5 {
             analyzer.process(
                 accelerometer: accel(0.5, ts: Double(i) * 0.05),
-                gyroscope: quietGyro(ts: Double(i) * 0.05)
+                gyroscope: quietGyro(ts: Double(i) * 0.05),
+                attitude: .zero
             )
         }
 
@@ -180,12 +181,123 @@ struct MotionAnalyzerTests {
 
         analyzer.process(
             accelerometer: accel(2.0, ts: 0),
-            gyroscope: quietGyro(ts: 0)
+            gyroscope: quietGyro(ts: 0),
+            attitude: .zero
         )
 
         #expect(events.contains(where: {
             if case .accelerationSpike = $0 { true } else { false }
         }))
         #expect(analyzer.currentState == .rapidMovement(vector: .zero))  // coarse equality
+    }
+
+    // MARK: - Heading / Angle Tests
+
+    @Test("headingChanged reports the highest crossed threshold tier")
+    @MainActor
+    func headingReportsHighestTier() {
+        var config = VectorGuardConfiguration()
+        config.headingSmoothingFactor  = 1.0   // disable smoothing for a deterministic single-step delta
+        config.headingChangeThresholds = [15, 45, 120]
+
+        let analyzer = MotionAnalyzer(configuration: config)
+        var events: [VectorGuardEvent] = []
+        analyzer.onEvent = { events.append($0) }
+
+        analyzer.process(heading: 0)     // establishes baseline — no event
+        analyzer.process(heading: 100)   // +100° crosses the 15° and 45° tiers, not 120°
+
+        let headingEvents = events.compactMap { event -> (current: Double, delta: Double, threshold: Double)? in
+            if case .headingChanged(let current, let delta, let threshold) = event { return (current, delta, threshold) }
+            return nil
+        }
+        #expect(headingEvents.count == 1)
+        #expect(headingEvents.first?.threshold == 45)
+        #expect(abs((headingEvents.first?.delta ?? 0) - 100) < 1e-6)
+    }
+
+    @Test("heading smoothing absorbs a single noisy spike")
+    @MainActor
+    func headingSmoothingAbsorbsSpike() {
+        var config = VectorGuardConfiguration()
+        config.headingSmoothingFactor  = 0.1   // heavy smoothing
+        config.headingChangeThresholds = [15]
+
+        let analyzer = MotionAnalyzer(configuration: config)
+        var events: [VectorGuardEvent] = []
+        analyzer.onEvent = { events.append($0) }
+
+        analyzer.process(heading: 0)    // baseline
+        analyzer.process(heading: 90)   // one noisy outlier — smoothing should keep the blended value well under 15°
+
+        let headingEvents = events.filter { if case .headingChanged = $0 { return true }; return false }
+        #expect(headingEvents.isEmpty)
+    }
+
+    @Test("heading delta wraps correctly across the 0°/360° boundary")
+    @MainActor
+    func headingDeltaWrapsAcrossNorth() {
+        var config = VectorGuardConfiguration()
+        config.headingSmoothingFactor  = 1.0   // disable smoothing for a deterministic single-step delta
+        config.headingChangeThresholds = [15]
+
+        let analyzer = MotionAnalyzer(configuration: config)
+        var events: [VectorGuardEvent] = []
+        analyzer.onEvent = { events.append($0) }
+
+        analyzer.process(heading: 350)  // baseline
+        analyzer.process(heading: 10)   // naive subtraction gives -340°; the true rotation is +20° through north
+
+        let headingEvents = events.compactMap { event -> Double? in
+            if case .headingChanged(_, let delta, _) = event { return delta }
+            return nil
+        }
+        #expect(headingEvents.count == 1)
+        #expect(abs((headingEvents.first ?? 0) - 20) < 1e-6)
+    }
+
+    // MARK: - Attitude Tests
+
+    @Test("attitudeChanged fires once combined pitch/roll/yaw change crosses the threshold")
+    @MainActor
+    func attitudeChangeCrossesThreshold() {
+        var config = VectorGuardConfiguration()
+        config.attitudeChangeThreshold = 20.0
+
+        let analyzer = MotionAnalyzer(configuration: config)
+        var events: [VectorGuardEvent] = []
+        analyzer.onEvent = { events.append($0) }
+
+        let quiet = quietGyro(ts: 0)
+        analyzer.process(accelerometer: accel(0, ts: 0), gyroscope: quiet, attitude: .zero)               // baseline
+        analyzer.process(accelerometer: accel(0, ts: 0.05), gyroscope: quiet,
+                         attitude: DeviceAttitude(pitch: 30, roll: 0, yaw: 0))                            // |Δ| = 30° ≥ 20°
+
+        let attitudeEvents = events.compactMap { event -> (current: DeviceAttitude, delta: DeviceAttitude)? in
+            if case .attitudeChanged(let current, let delta) = event { return (current, delta) }
+            return nil
+        }
+        #expect(attitudeEvents.count == 1)
+        #expect(abs((attitudeEvents.first?.current.pitch ?? 0) - 30) < 1e-6)
+        #expect(abs((attitudeEvents.first?.delta.pitch ?? 0) - 30) < 1e-6)
+    }
+
+    @Test("attitudeChanged does not fire for changes below the threshold")
+    @MainActor
+    func attitudeChangeBelowThresholdIsIgnored() {
+        var config = VectorGuardConfiguration()
+        config.attitudeChangeThreshold = 20.0
+
+        let analyzer = MotionAnalyzer(configuration: config)
+        var events: [VectorGuardEvent] = []
+        analyzer.onEvent = { events.append($0) }
+
+        let quiet = quietGyro(ts: 0)
+        analyzer.process(accelerometer: accel(0, ts: 0), gyroscope: quiet, attitude: .zero)               // baseline
+        analyzer.process(accelerometer: accel(0, ts: 0.05), gyroscope: quiet,
+                         attitude: DeviceAttitude(pitch: 5, roll: 5, yaw: 5))                             // |Δ| ≈ 8.7° < 20°
+
+        let attitudeEvents = events.filter { if case .attitudeChanged = $0 { return true }; return false }
+        #expect(attitudeEvents.isEmpty)
     }
 }
