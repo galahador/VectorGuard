@@ -11,33 +11,36 @@ struct SignalBuffer {
     
     private var storage: [Double]
     private var head: Int = 0
-    
+    private var runningSum: Double = 0
+
     private(set) var count: Int = 0
     let capacity: Int
-    
+
     init(capacity: Int) {
         precondition(capacity > 0, "SignalBuffer capacity must be positive")
         self.capacity = capacity
         self.storage = Array(repeating: 0, count: capacity)
     }
-    
+
     // MARK: - Write
-    
+
     mutating func push(_ value: Double) {
+        if count == capacity { runningSum -= storage[head] }
         storage[head] = value
+        runningSum += value
         head = (head + 1) % capacity
         if count < capacity { count += 1 }
     }
-    
+
     // MARK: - Read
     var values: [Double] {
         guard count == capacity else { return Array(storage.prefix(count)) }
         return Array(storage[head...]) + Array(storage[..<head])
     }
-    
+
     var average: Double {
         guard count > 0 else { return 0 }
-        return values.reduce(0, +) / Double(count)
+        return runningSum / Double(count)
     }
     
     var isFull: Bool { count == capacity }

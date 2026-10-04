@@ -171,12 +171,14 @@ public final class VectorGuard {
     public func subscribe(where predicate: @escaping @Sendable (VectorGuardEvent) -> Bool) -> AsyncStream<VectorGuardEvent> {
         let base = subscribe()
         return AsyncStream { continuation in
-            Task {
+            let relay = Task {
                 for await event in base where predicate(event) {
+                    if Task.isCancelled { break }
                     continuation.yield(event)
                 }
                 continuation.finish()
             }
+            continuation.onTermination = { _ in relay.cancel() }
         }
     }
 
@@ -200,9 +202,10 @@ public final class VectorGuard {
     public func monitorSensors(throttle interval: TimeInterval) -> AsyncStream<SensorReading> {
         let base = monitorSensors()
         return AsyncStream { continuation in
-            Task {
+            let relay = Task {
                 var lastTimestamp: TimeInterval = -.infinity
                 for await reading in base {
+                    if Task.isCancelled { break }
                     if reading.timestamp - lastTimestamp >= interval {
                         continuation.yield(reading)
                         lastTimestamp = reading.timestamp
@@ -210,6 +213,7 @@ public final class VectorGuard {
                 }
                 continuation.finish()
             }
+            continuation.onTermination = { _ in relay.cancel() }
         }
     }
 

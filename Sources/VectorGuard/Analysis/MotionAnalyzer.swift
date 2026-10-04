@@ -26,6 +26,7 @@ final class MotionAnalyzer {
     private var movingCount  = 0
     private var idleCount    = 0
     private var idleSampleTarget: Int
+    private var smoothedAccelMagnitude: Double?
     
     // MARK: - Internal: Rapid movement debounce
     
@@ -120,7 +121,8 @@ final class MotionAnalyzer {
     private func processAccelerometer(_ sample: AccelerometerSample) {
         let mag = sample.userAcceleration.magnitude
         accelBuffer.push(mag)
-        
+        let smoothedMag = smoothed(magnitude: mag)
+
         let now = sample.timestamp
         if mag >= configuration.rapidMovementThreshold,
            now - lastRapidMovementTime > configuration.rapidMovementDebounce {
@@ -134,17 +136,25 @@ final class MotionAnalyzer {
             idleCount   = 0
             return
         }
-        
+
         // Hysteresis counters
-        if mag >= configuration.movementThreshold {
+        if smoothedMag >= configuration.movementThreshold {
             movingCount += 1
             idleCount    = 0
         } else {
             idleCount   += 1
             movingCount  = 0
         }
-        
-        updateMovingOrIdle(magnitude: mag, timestamp: now)
+
+        updateMovingOrIdle(magnitude: smoothedMag, timestamp: now)
+    }
+
+    private func smoothed(magnitude raw: Double) -> Double {
+        let factor = configuration.accelSmoothingFactor
+        let previous = smoothedAccelMagnitude ?? raw
+        let blended = factor * raw + (1 - factor) * previous
+        smoothedAccelMagnitude = blended
+        return blended
     }
     
     private func updateMovingOrIdle(magnitude: Double, timestamp: TimeInterval) {
@@ -169,6 +179,9 @@ final class MotionAnalyzer {
             if idleCount >= idleSampleTarget {
                 transition(to: .idle)
                 emit(.devicePutDown)
+            } else if movingCount >= configuration.movementConfirmationSamples,
+                      reversalTimestamps.isEmpty {
+                transition(to: .moving(intensity: magnitude))
             }
             
         case .rapidMovement:
@@ -214,7 +227,8 @@ final class MotionAnalyzer {
         reversalTimestamps.removeAll { $0 < windowStart }
         
         if reversalTimestamps.count >= configuration.jigglingReversalCount,
-           currentState != .jiggling {
+           currentState != .jiggling,
+           sample.timestamp - rapidMovementEnteredAt >= configuration.rapidMovementDebounce {
             transition(to: .jiggling)
             emit(.jigglingDetected)
             reversalTimestamps.removeAll()   // reset after triggering

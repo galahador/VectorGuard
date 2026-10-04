@@ -7,7 +7,6 @@
 
 import Foundation
 
-/// The current motion state inferred from sensor data.
 public enum MotionState: Equatable, Sendable, CustomStringConvertible {
     case idle
     case moving(intensity: Double)
