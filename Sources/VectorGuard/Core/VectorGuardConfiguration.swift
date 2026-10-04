@@ -26,6 +26,11 @@ public struct VectorGuardConfiguration: Sendable {
     public var headingChangeThresholds: [Double] = [15.0, 45.0, 120.0]
     public var attitudeChangeThreshold: Double = 20.0
     public var altitudeChangeThreshold: Double = 1.0
+    public var freeFallThreshold: Double = 0.25
+    public var freeFallMinDuration: TimeInterval = 0.1
+    public var orientationThreshold: Double = 0.75
+    public var gravitySmoothingFactor: Double = 0.2
+    public var restingSurfaceNoiseThreshold: Double = 0.01
 
     // MARK: - Init
     public init() {}
@@ -42,6 +47,8 @@ public struct VectorGuardConfiguration: Sendable {
         c.headingSmoothingFactor       = 0.4
         c.headingChangeThresholds      = [8.0, 30.0, 90.0]
         c.attitudeChangeThreshold      = 12.0
+        c.freeFallThreshold            = 0.35
+        c.restingSurfaceNoiseThreshold = 0.006
         return c
     }
     
@@ -60,6 +67,8 @@ public struct VectorGuardConfiguration: Sendable {
         c.headingSmoothingFactor       = 0.15
         c.headingChangeThresholds      = [30.0, 75.0, 150.0]
         c.attitudeChangeThreshold      = 35.0
+        c.freeFallThreshold            = 0.15
+        c.restingSurfaceNoiseThreshold = 0.02
         return c
     }
 }

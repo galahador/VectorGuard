@@ -24,13 +24,19 @@ public final class VectorGuard {
 
     public var motionConfidence: Double { analyzer.motionConfidence }
 
+    public var orientation: DeviceOrientation { analyzer.currentOrientation }
+
+    public var idleSurfaceState: IdleSurfaceState { analyzer.idleSurfaceState }
+
     public private(set) var isMonitoring = false
-    
+
     public var status: VectorGuardStatus {
         VectorGuardStatus(
             isMonitoring:        isMonitoring,
             currentState:        currentState,
             motionConfidence:    motionConfidence,
+            orientation:         orientation,
+            idleSurfaceState:    idleSurfaceState,
             lastAcceleration:    lastAcceleration,
             lastGyroscope:       lastGyroscope,
             lastAttitude:        lastAttitude,
@@ -109,6 +115,8 @@ public final class VectorGuard {
                 timestamp:        accel.timestamp,
                 state:            self.currentState,
                 motionConfidence: self.motionConfidence,
+                orientation:      self.orientation,
+                idleSurfaceState: self.idleSurfaceState,
                 pressure:         self.lastPressure,
                 relativeAltitude: self.lastRelativeAltitude
             )

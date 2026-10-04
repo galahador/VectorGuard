@@ -18,6 +18,8 @@ public struct SensorReading: Sendable {
     public let timestamp: TimeInterval
     public let state: MotionState
     public let motionConfidence: Double
+    public let orientation: DeviceOrientation
+    public let idleSurfaceState: IdleSurfaceState
     public let pressure: Double?
     public let relativeAltitude: Double?
 }

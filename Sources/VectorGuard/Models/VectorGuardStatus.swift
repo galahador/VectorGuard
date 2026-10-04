@@ -32,6 +32,8 @@ public struct VectorGuardStatus: Sendable {
     }
 
     public let motionConfidence: Double
+    public let orientation: DeviceOrientation
+    public let idleSurfaceState: IdleSurfaceState
 
     // MARK: - Raw Sensor Readings
     public let lastAcceleration: SensorVector?
@@ -52,6 +54,8 @@ public struct VectorGuardStatus: Sendable {
         isMonitoring: Bool,
         currentState: MotionState,
         motionConfidence: Double,
+        orientation: DeviceOrientation,
+        idleSurfaceState: IdleSurfaceState,
         lastAcceleration: SensorVector?,
         lastGyroscope: SensorVector?,
         lastAttitude: DeviceAttitude?,
@@ -66,6 +70,8 @@ public struct VectorGuardStatus: Sendable {
         self.isMonitoring        = isMonitoring
         self.currentState        = currentState
         self.motionConfidence    = motionConfidence
+        self.orientation         = orientation
+        self.idleSurfaceState    = idleSurfaceState
         self.lastAcceleration    = lastAcceleration
         self.lastGyroscope       = lastGyroscope
         self.lastAttitude        = lastAttitude

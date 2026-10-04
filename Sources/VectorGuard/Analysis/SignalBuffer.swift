@@ -12,6 +12,7 @@ struct SignalBuffer {
     private var storage: [Double]
     private var head: Int = 0
     private var runningSum: Double = 0
+    private var runningSumSq: Double = 0
 
     private(set) var count: Int = 0
     let capacity: Int
@@ -25,9 +26,13 @@ struct SignalBuffer {
     // MARK: - Write
 
     mutating func push(_ value: Double) {
-        if count == capacity { runningSum -= storage[head] }
+        if count == capacity {
+            runningSum   -= storage[head]
+            runningSumSq -= storage[head] * storage[head]
+        }
         storage[head] = value
-        runningSum += value
+        runningSum   += value
+        runningSumSq += value * value
         head = (head + 1) % capacity
         if count < capacity { count += 1 }
     }
@@ -42,7 +47,15 @@ struct SignalBuffer {
         guard count > 0 else { return 0 }
         return runningSum / Double(count)
     }
-    
+
+    var variance: Double {
+        guard count > 0 else { return 0 }
+        let mean = average
+        return max(0, runningSumSq / Double(count) - mean * mean)
+    }
+
+    var standardDeviation: Double { variance.squareRoot() }
+
     var isFull: Bool { count == capacity }
     var isEmpty: Bool { count == 0 }
 }

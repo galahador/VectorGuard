@@ -40,7 +40,7 @@ final class MotionAnalyzer {
     private var prevGyroSign = (x: 0, y: 0, z: 0)
 
     private(set) var motionConfidence: Double = 0
-    
+
     // MARK: - Internal: Compass
     private var smoothedHeadingVector: (cos: Double, sin: Double)?
     private var lastEmittedHeading: Double?
@@ -48,6 +48,13 @@ final class MotionAnalyzer {
     // MARK: - Internal: Attitude
 
     private var lastAttitude: DeviceAttitude?
+
+    private var smoothedGravity: SensorVector?
+    private(set) var currentOrientation: DeviceOrientation = .unknown
+
+    private var freeFallStartedAt: TimeInterval?
+
+    private(set) var idleSurfaceState: IdleSurfaceState = .unknown
 
     // MARK: - Init
     init(configuration: VectorGuardConfiguration) {
@@ -63,6 +70,8 @@ final class MotionAnalyzer {
         processAccelerometer(accelerometer)
         processGyroscope(gyroscope)
         processAttitude(attitude)
+        processGravity(accelerometer.gravity)
+        processFreeFall(accelerometer)
     }
 
     func process(heading rawHeading: Double) {
@@ -118,6 +127,38 @@ final class MotionAnalyzer {
         if delta < -180 { delta += 360 }
         return delta
     }
+
+    private func processGravity(_ gravity: SensorVector) {
+        let factor = configuration.gravitySmoothingFactor
+        let previous = smoothedGravity ?? gravity
+        let blended = SensorVector(
+            x: factor * gravity.x + (1 - factor) * previous.x,
+            y: factor * gravity.y + (1 - factor) * previous.y,
+            z: factor * gravity.z + (1 - factor) * previous.z
+        )
+        smoothedGravity = blended
+
+        let orientation = DeviceOrientation.classify(gravity: blended, threshold: configuration.orientationThreshold)
+        guard orientation != currentOrientation else { return }
+        let previousOrientation = currentOrientation
+        currentOrientation = orientation
+        emit(.orientationChanged(current: orientation, previous: previousOrientation))
+    }
+
+    private func processFreeFall(_ sample: AccelerometerSample) {
+        let totalMagnitude = (sample.userAcceleration + sample.gravity).magnitude
+        guard totalMagnitude <= configuration.freeFallThreshold else {
+            freeFallStartedAt = nil
+            return
+        }
+        let startedAt = freeFallStartedAt ?? sample.timestamp
+        freeFallStartedAt = startedAt
+        let duration = sample.timestamp - startedAt
+        if duration >= configuration.freeFallMinDuration {
+            emit(.freeFallDetected(duration: duration))
+            freeFallStartedAt = nil
+        }
+    }
     
     // MARK: - Private: Accelerometer
     
@@ -162,8 +203,17 @@ final class MotionAnalyzer {
     }
     
     private func updateMovingOrIdle(magnitude: Double, timestamp: TimeInterval) {
+        if currentState == .idle {
+            if accelBuffer.isFull {
+                idleSurfaceState = accelBuffer.standardDeviation <= configuration.restingSurfaceNoiseThreshold
+                    ? .restingOnSurface : .heldStill
+            }
+        } else {
+            idleSurfaceState = .unknown
+        }
+
         switch currentState {
-            
+
         case .idle:
             if movingCount >= configuration.movementConfirmationSamples {
                 transition(to: .moving(intensity: magnitude))
