@@ -22,12 +22,15 @@ public final class VectorGuard {
 
     public var currentState: MotionState { analyzer.currentState }
 
+    public var motionConfidence: Double { analyzer.motionConfidence }
+
     public private(set) var isMonitoring = false
     
     public var status: VectorGuardStatus {
         VectorGuardStatus(
             isMonitoring:        isMonitoring,
             currentState:        currentState,
+            motionConfidence:    motionConfidence,
             lastAcceleration:    lastAcceleration,
             lastGyroscope:       lastGyroscope,
             lastAttitude:        lastAttitude,
@@ -105,6 +108,7 @@ public final class VectorGuard {
                 headingAccuracy:  self.lastHeadingAccuracy,
                 timestamp:        accel.timestamp,
                 state:            self.currentState,
+                motionConfidence: self.motionConfidence,
                 pressure:         self.lastPressure,
                 relativeAltitude: self.lastRelativeAltitude
             )
@@ -159,7 +163,6 @@ public final class VectorGuard {
         if let continuation = localContinuation {
             subscribers[id] = continuation
             continuation.onTermination = { [weak self] _ in
-                // onTermination may be called from any thread — hop to MainActor to mutate state.
                 Task { @MainActor [weak self] in
                     self?.subscribers.removeValue(forKey: id)
                 }

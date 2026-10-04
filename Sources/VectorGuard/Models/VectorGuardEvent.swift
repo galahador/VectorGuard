@@ -16,6 +16,6 @@ public enum VectorGuardEvent: Sendable, Equatable {
     case attitudeChanged(current: DeviceAttitude, delta: DeviceAttitude)
     case devicePickedUp
     case devicePutDown
-    case jigglingDetected
+    case jigglingDetected(intensity: Double, frequency: Double, dominantAxis: SensorAxis)
     case altitudeChanged(delta: Double, pressure: Double)
 }

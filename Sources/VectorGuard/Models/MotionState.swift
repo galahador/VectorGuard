@@ -11,8 +11,8 @@ public enum MotionState: Equatable, Sendable, CustomStringConvertible {
     case idle
     case moving(intensity: Double)
     case rapidMovement(vector: SensorVector)
-    case jiggling
-    
+    case jiggling(intensity: Double, frequency: Double, dominantAxis: SensorAxis)
+
     // MARK: - Equatable
     public static func == (lhs: MotionState, rhs: MotionState) -> Bool {
         switch (lhs, rhs) {
@@ -23,7 +23,7 @@ public enum MotionState: Equatable, Sendable, CustomStringConvertible {
         default:                                     return false
         }
     }
-    
+
     // MARK: - CustomStringConvertible
     public var description: String {
         switch self {
@@ -33,8 +33,8 @@ public enum MotionState: Equatable, Sendable, CustomStringConvertible {
             return String(format: "moving(intensity: %.2f g)", intensity)
         case .rapidMovement(let v):
             return String(format: "rapidMovement(magnitude: %.2f g)", v.magnitude)
-        case .jiggling:
-            return "jiggling"
+        case .jiggling(let intensity, let frequency, let axis):
+            return String(format: "jiggling(intensity: %.2f, frequency: %.1f Hz, axis: %@)", intensity, frequency, axis.description)
         }
     }
 }

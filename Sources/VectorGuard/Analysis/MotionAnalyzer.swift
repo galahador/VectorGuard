@@ -36,7 +36,10 @@ final class MotionAnalyzer {
     // MARK: - Internal: Jiggling detection
     
     private var reversalTimestamps: [TimeInterval] = []
+    private var axisReversalTally = (x: 0, y: 0, z: 0)
     private var prevGyroSign = (x: 0, y: 0, z: 0)
+
+    private(set) var motionConfidence: Double = 0
     
     // MARK: - Internal: Compass
     private var smoothedHeadingVector: (cos: Double, sin: Double)?
@@ -122,6 +125,7 @@ final class MotionAnalyzer {
         let mag = sample.userAcceleration.magnitude
         accelBuffer.push(mag)
         let smoothedMag = smoothed(magnitude: mag)
+        motionConfidence = min(1, smoothedMag / configuration.rapidMovementThreshold)
 
         let now = sample.timestamp
         if mag >= configuration.rapidMovementThreshold,
@@ -214,25 +218,40 @@ final class MotionAnalyzer {
         let sx = axisSign(rv.x)
         let sy = axisSign(rv.y)
         let sz = axisSign(rv.z)
-        
-        let reversed = (prevGyroSign.x != 0 && sx != 0 && sx != prevGyroSign.x)
-        || (prevGyroSign.y != 0 && sy != 0 && sy != prevGyroSign.y)
-        || (prevGyroSign.z != 0 && sz != 0 && sz != prevGyroSign.z)
-        
-        if reversed { reversalTimestamps.append(sample.timestamp) }
+
+        let reversedX = prevGyroSign.x != 0 && sx != 0 && sx != prevGyroSign.x
+        let reversedY = prevGyroSign.y != 0 && sy != 0 && sy != prevGyroSign.y
+        let reversedZ = prevGyroSign.z != 0 && sz != 0 && sz != prevGyroSign.z
+
+        if reversedX || reversedY || reversedZ {
+            reversalTimestamps.append(sample.timestamp)
+            if reversedX { axisReversalTally.x += 1 }
+            if reversedY { axisReversalTally.y += 1 }
+            if reversedZ { axisReversalTally.z += 1 }
+        }
         prevGyroSign = (sx, sy, sz)
-        
-        // Prune reversals that have fallen outside the window
+
         let windowStart = sample.timestamp - configuration.jigglingWindow
         reversalTimestamps.removeAll { $0 < windowStart }
-        
+        if reversalTimestamps.isEmpty { axisReversalTally = (0, 0, 0) }
+
         if reversalTimestamps.count >= configuration.jigglingReversalCount,
-           currentState != .jiggling,
            sample.timestamp - rapidMovementEnteredAt >= configuration.rapidMovementDebounce {
-            transition(to: .jiggling)
-            emit(.jigglingDetected)
-            reversalTimestamps.removeAll()   // reset after triggering
+            let frequency = Double(reversalTimestamps.count) / configuration.jigglingWindow
+            let axis = dominantAxis(from: axisReversalTally)
+            if case .jiggling = currentState {
+                currentState = .jiggling(intensity: mag, frequency: frequency, dominantAxis: axis)
+            } else {
+                transition(to: .jiggling(intensity: mag, frequency: frequency, dominantAxis: axis))
+                emit(.jigglingDetected(intensity: mag, frequency: frequency, dominantAxis: axis))
+            }
         }
+    }
+
+    private func dominantAxis(from tally: (x: Int, y: Int, z: Int)) -> SensorAxis {
+        if tally.x >= tally.y, tally.x >= tally.z { return .x }
+        if tally.y >= tally.z { return .y }
+        return .z
     }
     
     // MARK: - Private

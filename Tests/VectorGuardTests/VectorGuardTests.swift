@@ -95,8 +95,15 @@ struct MotionStateTests {
 
     @Test("different cases are not equal")
     func differentCases() {
-        #expect(MotionState.idle != MotionState.jiggling)
+        #expect(MotionState.idle != MotionState.jiggling(intensity: 0, frequency: 0, dominantAxis: .x))
         #expect(MotionState.idle != MotionState.moving(intensity: 0))
+    }
+
+    @Test("jiggling equality ignores associated values")
+    func jigglingCoarseEquality() {
+        let a = MotionState.jiggling(intensity: 1.0, frequency: 5.0, dominantAxis: .x)
+        let b = MotionState.jiggling(intensity: 9.0, frequency: 1.0, dominantAxis: .z)
+        #expect(a == b)
     }
 
     @Test("description is non-empty for all cases")
@@ -105,7 +112,7 @@ struct MotionStateTests {
             .idle,
             .moving(intensity: 1.23),
             .rapidMovement(vector: .zero),
-            .jiggling,
+            .jiggling(intensity: 2.5, frequency: 6.0, dominantAxis: .y),
         ]
         for state in states {
             #expect(!state.description.isEmpty)
@@ -299,5 +306,82 @@ struct MotionAnalyzerTests {
 
         let attitudeEvents = events.filter { if case .attitudeChanged = $0 { return true }; return false }
         #expect(attitudeEvents.isEmpty)
+    }
+
+    // MARK: - Jiggling Classification Tests
+
+    private func gyroY(_ mag: Double, ts: TimeInterval) -> GyroscopeSample {
+        GyroscopeSample(rotationRate: SensorVector(x: 0, y: mag, z: 0), timestamp: ts)
+    }
+
+    @Test("jigglingDetected reports dominant axis and a positive frequency")
+    @MainActor
+    func jigglingReportsDominantAxisAndFrequency() {
+        var config = VectorGuardConfiguration()
+        config.jigglingGyroThreshold = 0.5
+        config.jigglingReversalCount = 3
+        config.jigglingWindow        = 2.0
+        config.rapidMovementDebounce = 0.0
+
+        let analyzer = MotionAnalyzer(configuration: config)
+        var events: [VectorGuardEvent] = []
+        analyzer.onEvent = { events.append($0) }
+
+        let signs: [Double] = [1, -1, 1, -1, 1]
+        for (i, sign) in signs.enumerated() {
+            let ts = Double(i) * 0.1
+            analyzer.process(
+                accelerometer: accel(0, ts: ts),
+                gyroscope: gyroY(sign * 2.0, ts: ts),
+                attitude: .zero
+            )
+        }
+
+        let jiggleEvents = events.compactMap { event -> (intensity: Double, frequency: Double, axis: SensorAxis)? in
+            if case .jigglingDetected(let intensity, let frequency, let axis) = event { return (intensity, frequency, axis) }
+            return nil
+        }
+        #expect(jiggleEvents.count == 1)
+        #expect(jiggleEvents.first?.axis == .y)
+        #expect((jiggleEvents.first?.frequency ?? 0) > 0)
+
+        if case .jiggling(_, _, let axis) = analyzer.currentState {
+            #expect(axis == .y)
+        } else {
+            Issue.record("expected analyzer to be in the jiggling state")
+        }
+    }
+
+    // MARK: - Motion Confidence Tests
+
+    @Test("motionConfidence scales with magnitude relative to the rapid movement threshold")
+    @MainActor
+    func motionConfidenceScalesWithMagnitude() {
+        var config = VectorGuardConfiguration()
+        config.rapidMovementThreshold = 2.0
+
+        let analyzer = MotionAnalyzer(configuration: config)
+        analyzer.process(
+            accelerometer: accel(1.0, ts: 0),
+            gyroscope: quietGyro(ts: 0),
+            attitude: .zero
+        )
+        #expect(abs(analyzer.motionConfidence - 0.5) < 1e-9)
+    }
+
+    @Test("motionConfidence caps at 1.0 for strong spikes")
+    @MainActor
+    func motionConfidenceCapsAtOne() {
+        var config = VectorGuardConfiguration()
+        config.rapidMovementThreshold = 1.0
+        config.rapidMovementDebounce  = 0.0
+
+        let analyzer = MotionAnalyzer(configuration: config)
+        analyzer.process(
+            accelerometer: accel(5.0, ts: 0),
+            gyroscope: quietGyro(ts: 0),
+            attitude: .zero
+        )
+        #expect(analyzer.motionConfidence == 1.0)
     }
 }

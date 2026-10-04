@@ -26,7 +26,12 @@ public struct VectorGuardStatus: Sendable {
         return false
     }
 
-    public var isJiggling: Bool { currentState == .jiggling }
+    public var isJiggling: Bool {
+        if case .jiggling = currentState { return true }
+        return false
+    }
+
+    public let motionConfidence: Double
 
     // MARK: - Raw Sensor Readings
     public let lastAcceleration: SensorVector?
@@ -46,6 +51,7 @@ public struct VectorGuardStatus: Sendable {
     init(
         isMonitoring: Bool,
         currentState: MotionState,
+        motionConfidence: Double,
         lastAcceleration: SensorVector?,
         lastGyroscope: SensorVector?,
         lastAttitude: DeviceAttitude?,
@@ -59,6 +65,7 @@ public struct VectorGuardStatus: Sendable {
     ) {
         self.isMonitoring        = isMonitoring
         self.currentState        = currentState
+        self.motionConfidence    = motionConfidence
         self.lastAcceleration    = lastAcceleration
         self.lastGyroscope       = lastGyroscope
         self.lastAttitude        = lastAttitude

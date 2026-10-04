@@ -17,6 +17,7 @@ public struct SensorReading: Sendable {
     public let headingAccuracy: Double?
     public let timestamp: TimeInterval
     public let state: MotionState
+    public let motionConfidence: Double
     public let pressure: Double?
     public let relativeAltitude: Double?
 }
