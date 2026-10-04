@@ -7,27 +7,13 @@
 
 import Foundation
 
-/// The current motion state inferred from sensor data.
 public enum MotionState: Equatable, Sendable, CustomStringConvertible {
-    
-    /// Device is at rest no significant acceleration detected.
     case idle
-    
-    /// Sustained movement detected above the movement threshold.
-    ///
-    /// - Parameter intensity: Average user acceleration magnitude during this period.
     case moving(intensity: Double)
-    
-    /// A short, sharp acceleration spike the device was grabbed, dropped, or thrown.
-    ///
-    /// - Parameter vector: The raw user acceleration vector at the moment of the spike.
     case rapidMovement(vector: SensorVector)
-    
-    /// Repeated direction reversals within a short window someone shaking the device.
-    case jiggling
-    
-    // MARK: - Equatable (coarse: only compares the case, not associated values)
-    
+    case jiggling(intensity: Double, frequency: Double, dominantAxis: SensorAxis)
+
+    // MARK: - Equatable
     public static func == (lhs: MotionState, rhs: MotionState) -> Bool {
         switch (lhs, rhs) {
         case (.idle, .idle):                         return true
@@ -37,9 +23,8 @@ public enum MotionState: Equatable, Sendable, CustomStringConvertible {
         default:                                     return false
         }
     }
-    
+
     // MARK: - CustomStringConvertible
-    
     public var description: String {
         switch self {
         case .idle:
@@ -48,8 +33,8 @@ public enum MotionState: Equatable, Sendable, CustomStringConvertible {
             return String(format: "moving(intensity: %.2f g)", intensity)
         case .rapidMovement(let v):
             return String(format: "rapidMovement(magnitude: %.2f g)", v.magnitude)
-        case .jiggling:
-            return "jiggling"
+        case .jiggling(let intensity, let frequency, let axis):
+            return String(format: "jiggling(intensity: %.2f, frequency: %.1f Hz, axis: %@)", intensity, frequency, axis.description)
         }
     }
 }

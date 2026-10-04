@@ -11,21 +11,12 @@ import Foundation
 
 import CoreMotion
 
-/// Internal wrapper around `CMAltimeter` for barometric pressure and relative altitude.
-///
-/// Updates are delivered on `.main`, which guarantees both main-actor isolation and
-/// in-order delivery.
-/// No Info.plist key is required.
 final class BarometerSensorManager: @unchecked Sendable {
 
     private let altimeter = CMAltimeter()
 
     var isAvailable: Bool { CMAltimeter.isRelativeAltitudeAvailable() }
 
-    /// Start barometric updates.
-    ///
-    /// - Parameter handler: Called on every altitude update with
-    ///   `(pressure: Double in kPa, relativeAltitude: Double in metres)`.
     func startUpdates(handler: @escaping @MainActor (Double, Double) -> Void) {
         guard isAvailable else { return }
         altimeter.startRelativeAltitudeUpdates(to: .main) { data, error in
@@ -45,7 +36,6 @@ final class BarometerSensorManager: @unchecked Sendable {
 
 #else
 
-/// Stub for non-iOS platforms. Barometer is unavailable.
 final class BarometerSensorManager: @unchecked Sendable {
     var isAvailable: Bool { false }
     func startUpdates(handler: @escaping @MainActor (Double, Double) -> Void) {}

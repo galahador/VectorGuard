@@ -7,9 +7,6 @@
 
 import Foundation
 
-/// Stateful detection engine that classifies raw sensor samples into motion states and events.
-///
-/// All methods must be called on the **main actor**.
 @MainActor
 final class MotionAnalyzer {
     
@@ -29,6 +26,7 @@ final class MotionAnalyzer {
     private var movingCount  = 0
     private var idleCount    = 0
     private var idleSampleTarget: Int
+    private var smoothedAccelMagnitude: Double?
     
     // MARK: - Internal: Rapid movement debounce
     
@@ -37,20 +35,66 @@ final class MotionAnalyzer {
     
     // MARK: - Internal: Jiggling detection
     
-    /// Timestamps of axis-direction reversals inside the jiggling window.
     private var reversalTimestamps: [TimeInterval] = []
-    /// Sign of the previous significant gyroscope reading per axis: -1, 0, or +1.
+    private var axisReversalTally = (x: 0, y: 0, z: 0)
     private var prevGyroSign = (x: 0, y: 0, z: 0)
-    
-    // MARK: - Internal: Compass
 
+    private(set) var motionConfidence: Double = 0
+
+    // MARK: - Internal: Compass
     private var smoothedHeadingVector: (cos: Double, sin: Double)?
-    
     private var lastEmittedHeading: Double?
 
     // MARK: - Internal: Attitude
 
     private var lastAttitude: DeviceAttitude?
+
+    // MARK: - Internal: Orientation
+
+    private var smoothedGravity: SensorVector?
+    private(set) var currentOrientation: DeviceOrientation = .unknown
+
+    // MARK: - Internal: Free fall
+
+    private var freeFallStartedAt: TimeInterval?
+
+    // MARK: - Internal: Idle surface classification
+
+    private(set) var idleSurfaceState: IdleSurfaceState = .unknown
+
+    // MARK: - Internal: Calibration
+
+    private var calibrationSamples: [Double] = []
+    private var calibrationEndTime: TimeInterval?
+    private(set) var calibratedMovementThreshold: Double?
+
+    var isCalibrating: Bool {
+        configuration.calibrationDuration > 0 && calibratedMovementThreshold == nil
+    }
+
+    private var effectiveMovementThreshold: Double {
+        calibratedMovementThreshold ?? configuration.movementThreshold
+    }
+
+    // MARK: - Internal: Diagnostics
+
+    private var lastRawAccelMagnitude: Double = 0
+    private var lastProcessedTimestamp: TimeInterval = 0
+
+    var diagnosticsSnapshot: VectorGuardDiagnostics {
+        VectorGuardDiagnostics(
+            timestamp: lastProcessedTimestamp,
+            rawAccelMagnitude: lastRawAccelMagnitude,
+            smoothedAccelMagnitude: smoothedAccelMagnitude ?? 0,
+            effectiveMovementThreshold: effectiveMovementThreshold,
+            isCalibrating: isCalibrating,
+            movingCount: movingCount,
+            idleCount: idleCount,
+            reversalCount: reversalTimestamps.count,
+            reversalFrequency: configuration.jigglingWindow > 0 ? Double(reversalTimestamps.count) / configuration.jigglingWindow : 0,
+            motionConfidence: motionConfidence
+        )
+    }
 
     // MARK: - Init
     init(configuration: VectorGuardConfiguration) {
@@ -66,9 +110,12 @@ final class MotionAnalyzer {
         processAccelerometer(accelerometer)
         processGyroscope(gyroscope)
         processAttitude(attitude)
+        processGravity(accelerometer.gravity)
+        processFreeFall(accelerometer)
     }
 
-    func process(heading rawHeading: Double) {
+    func process(heading rawHeading: Double, accuracy: Double) {
+        guard accuracy >= 0, accuracy <= configuration.maxHeadingAccuracy else { return }
         let heading = smoothed(heading: rawHeading)
         guard let last = lastEmittedHeading else { lastEmittedHeading = heading; return }
         let delta = Self.angularDelta(from: last, to: heading)
@@ -115,21 +162,75 @@ final class MotionAnalyzer {
         return degrees
     }
 
-    /// Shortest signed angular distance from `a` to `b`, in degrees, wrapped to `-180...180`.
     private static func angularDelta(from a: Double, to b: Double) -> Double {
         var delta = b - a
         if delta >  180 { delta -= 360 }
         if delta < -180 { delta += 360 }
         return delta
     }
+
+    // MARK: - Private: Orientation
+
+    private func processGravity(_ gravity: SensorVector) {
+        let factor = configuration.gravitySmoothingFactor
+        let previous = smoothedGravity ?? gravity
+        let blended = SensorVector(
+            x: factor * gravity.x + (1 - factor) * previous.x,
+            y: factor * gravity.y + (1 - factor) * previous.y,
+            z: factor * gravity.z + (1 - factor) * previous.z
+        )
+        smoothedGravity = blended
+
+        let orientation = DeviceOrientation.classify(gravity: blended, threshold: configuration.orientationThreshold)
+        guard orientation != currentOrientation else { return }
+        let previousOrientation = currentOrientation
+        currentOrientation = orientation
+        emit(.orientationChanged(current: orientation, previous: previousOrientation))
+    }
+
+    // MARK: - Private: Free fall
+
+    private func processFreeFall(_ sample: AccelerometerSample) {
+        let totalMagnitude = (sample.userAcceleration + sample.gravity).magnitude
+        guard totalMagnitude <= configuration.freeFallThreshold else {
+            freeFallStartedAt = nil
+            return
+        }
+        let startedAt = freeFallStartedAt ?? sample.timestamp
+        freeFallStartedAt = startedAt
+        let duration = sample.timestamp - startedAt
+        if duration >= configuration.freeFallMinDuration {
+            emit(.freeFallDetected(duration: duration))
+            freeFallStartedAt = nil
+        }
+    }
     
     // MARK: - Private: Accelerometer
     
     private func processAccelerometer(_ sample: AccelerometerSample) {
         let mag = sample.userAcceleration.magnitude
+        lastRawAccelMagnitude = mag
+        lastProcessedTimestamp = sample.timestamp
+
+        if isCalibrating {
+            if calibrationEndTime == nil {
+                calibrationEndTime = sample.timestamp + configuration.calibrationDuration
+            }
+            calibrationSamples.append(mag)
+            if sample.timestamp >= calibrationEndTime! {
+                calibratedMovementThreshold = Self.calibratedThreshold(
+                    from: calibrationSamples,
+                    configuration: configuration
+                )
+                calibrationSamples.removeAll()
+            }
+            return
+        }
+
         accelBuffer.push(mag)
-        
-        // Rapid movement — immediate, high-priority classification
+        let smoothedMag = smoothed(magnitude: mag)
+        motionConfidence = min(1, smoothedMag / configuration.rapidMovementThreshold)
+
         let now = sample.timestamp
         if mag >= configuration.rapidMovementThreshold,
            now - lastRapidMovementTime > configuration.rapidMovementDebounce {
@@ -143,22 +244,47 @@ final class MotionAnalyzer {
             idleCount   = 0
             return
         }
-        
+
         // Hysteresis counters
-        if mag >= configuration.movementThreshold {
+        if smoothedMag >= effectiveMovementThreshold {
             movingCount += 1
             idleCount    = 0
         } else {
             idleCount   += 1
             movingCount  = 0
         }
-        
-        updateMovingOrIdle(magnitude: mag, timestamp: now)
+
+        updateMovingOrIdle(magnitude: smoothedMag, timestamp: now)
+    }
+
+    private static func calibratedThreshold(from samples: [Double], configuration: VectorGuardConfiguration) -> Double {
+        guard !samples.isEmpty else { return configuration.movementThreshold }
+        let mean = samples.reduce(0, +) / Double(samples.count)
+        let variance = samples.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(samples.count)
+        let noiseFloor = variance.squareRoot()
+        return max(configuration.movementThreshold, noiseFloor * configuration.calibrationThresholdMultiplier)
+    }
+
+    private func smoothed(magnitude raw: Double) -> Double {
+        let factor = configuration.accelSmoothingFactor
+        let previous = smoothedAccelMagnitude ?? raw
+        let blended = factor * raw + (1 - factor) * previous
+        smoothedAccelMagnitude = blended
+        return blended
     }
     
     private func updateMovingOrIdle(magnitude: Double, timestamp: TimeInterval) {
+        if currentState == .idle {
+            if accelBuffer.isFull {
+                idleSurfaceState = accelBuffer.standardDeviation <= configuration.restingSurfaceNoiseThreshold
+                    ? .restingOnSurface : .heldStill
+            }
+        } else {
+            idleSurfaceState = .unknown
+        }
+
         switch currentState {
-            
+
         case .idle:
             if movingCount >= configuration.movementConfirmationSamples {
                 transition(to: .moving(intensity: magnitude))
@@ -178,6 +304,9 @@ final class MotionAnalyzer {
             if idleCount >= idleSampleTarget {
                 transition(to: .idle)
                 emit(.devicePutDown)
+            } else if movingCount >= configuration.movementConfirmationSamples,
+                      reversalTimestamps.isEmpty {
+                transition(to: .moving(intensity: magnitude))
             }
             
         case .rapidMovement:
@@ -210,28 +339,43 @@ final class MotionAnalyzer {
         let sx = axisSign(rv.x)
         let sy = axisSign(rv.y)
         let sz = axisSign(rv.z)
-        
-        let reversed = (prevGyroSign.x != 0 && sx != 0 && sx != prevGyroSign.x)
-        || (prevGyroSign.y != 0 && sy != 0 && sy != prevGyroSign.y)
-        || (prevGyroSign.z != 0 && sz != 0 && sz != prevGyroSign.z)
-        
-        if reversed { reversalTimestamps.append(sample.timestamp) }
+
+        let reversedX = prevGyroSign.x != 0 && sx != 0 && sx != prevGyroSign.x
+        let reversedY = prevGyroSign.y != 0 && sy != 0 && sy != prevGyroSign.y
+        let reversedZ = prevGyroSign.z != 0 && sz != 0 && sz != prevGyroSign.z
+
+        if reversedX || reversedY || reversedZ {
+            reversalTimestamps.append(sample.timestamp)
+            if reversedX { axisReversalTally.x += 1 }
+            if reversedY { axisReversalTally.y += 1 }
+            if reversedZ { axisReversalTally.z += 1 }
+        }
         prevGyroSign = (sx, sy, sz)
-        
-        // Prune reversals that have fallen outside the window
+
         let windowStart = sample.timestamp - configuration.jigglingWindow
         reversalTimestamps.removeAll { $0 < windowStart }
-        
+        if reversalTimestamps.isEmpty { axisReversalTally = (0, 0, 0) }
+
         if reversalTimestamps.count >= configuration.jigglingReversalCount,
-           currentState != .jiggling {
-            transition(to: .jiggling)
-            emit(.jigglingDetected)
-            reversalTimestamps.removeAll()   // reset after triggering
+           sample.timestamp - rapidMovementEnteredAt >= configuration.rapidMovementDebounce {
+            let frequency = Double(reversalTimestamps.count) / configuration.jigglingWindow
+            let axis = dominantAxis(from: axisReversalTally)
+            if case .jiggling = currentState {
+                currentState = .jiggling(intensity: mag, frequency: frequency, dominantAxis: axis)
+            } else {
+                transition(to: .jiggling(intensity: mag, frequency: frequency, dominantAxis: axis))
+                emit(.jigglingDetected(intensity: mag, frequency: frequency, dominantAxis: axis))
+            }
         }
+    }
+
+    private func dominantAxis(from tally: (x: Int, y: Int, z: Int)) -> SensorAxis {
+        if tally.x >= tally.y, tally.x >= tally.z { return .x }
+        if tally.y >= tally.z { return .y }
+        return .z
     }
     
     // MARK: - Private
-    
     private func transition(to newState: MotionState) {
         guard currentState != newState else { return }
         let old = currentState
@@ -246,6 +390,9 @@ final class MotionAnalyzer {
     private func reconfigureBuffers() {
         let newCap = Self.bufferCapacity(for: configuration)
         idleSampleTarget = Self.idleSampleTarget(for: configuration)
+        calibratedMovementThreshold = nil
+        calibrationSamples.removeAll()
+        calibrationEndTime = nil
         guard newCap != accelBuffer.capacity else { return }
         accelBuffer = SignalBuffer(capacity: newCap)
     }

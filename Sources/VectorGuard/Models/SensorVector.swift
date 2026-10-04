@@ -7,7 +7,6 @@
 
 import Foundation
 
-/// A three dimensional sensor reading.
 public struct SensorVector: Equatable, Hashable, Sendable {
     
     public let x: Double
@@ -25,4 +24,8 @@ public struct SensorVector: Equatable, Hashable, Sendable {
     }
     
     public static let zero = SensorVector(x: 0, y: 0, z: 0)
+
+    public static func + (lhs: SensorVector, rhs: SensorVector) -> SensorVector {
+        SensorVector(x: lhs.x + rhs.x, y: lhs.y + rhs.y, z: lhs.z + rhs.z)
+    }
 }
