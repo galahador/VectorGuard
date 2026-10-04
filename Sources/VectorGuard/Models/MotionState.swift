@@ -9,25 +9,12 @@ import Foundation
 
 /// The current motion state inferred from sensor data.
 public enum MotionState: Equatable, Sendable, CustomStringConvertible {
-    
-    /// Device is at rest no significant acceleration detected.
     case idle
-    
-    /// Sustained movement detected above the movement threshold.
-    ///
-    /// - Parameter intensity: Average user acceleration magnitude during this period.
     case moving(intensity: Double)
-    
-    /// A short, sharp acceleration spike the device was grabbed, dropped, or thrown.
-    ///
-    /// - Parameter vector: The raw user acceleration vector at the moment of the spike.
     case rapidMovement(vector: SensorVector)
-    
-    /// Repeated direction reversals within a short window someone shaking the device.
     case jiggling
     
-    // MARK: - Equatable (coarse: only compares the case, not associated values)
-    
+    // MARK: - Equatable
     public static func == (lhs: MotionState, rhs: MotionState) -> Bool {
         switch (lhs, rhs) {
         case (.idle, .idle):                         return true
@@ -39,7 +26,6 @@ public enum MotionState: Equatable, Sendable, CustomStringConvertible {
     }
     
     // MARK: - CustomStringConvertible
-    
     public var description: String {
         switch self {
         case .idle:

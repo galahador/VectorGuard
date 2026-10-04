@@ -189,7 +189,7 @@ struct MotionAnalyzerTests {
             if case .accelerationSpike = $0 { true } else { false }
         }))
         #expect(analyzer.currentState == .rapidMovement(vector: .zero))  // coarse equality
-    }
+        }
 
     // MARK: - Heading / Angle Tests
 

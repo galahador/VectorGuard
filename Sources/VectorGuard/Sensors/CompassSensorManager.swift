@@ -7,9 +7,8 @@
 
 import Foundation
 
-// MARK: - Sample Type (shared across all platforms)
+// MARK: - Sample Type
 
-/// A single compass heading frame.
 struct CompassSample: Sendable {
     
     let magneticHeading: Double
@@ -23,11 +22,6 @@ struct CompassSample: Sendable {
 
 import CoreLocation
 
-/// Internal wrapper around `CLLocationManager` for compass / magnetic-heading data.
-///
-/// `startUpdates` is always invoked on the main actor (see ``VectorGuard``), so
-/// `CLLocationManager` delivers its delegate callbacks on the main run loop, in order —
-/// safe to assert main-actor isolation and call the handler synchronously.
 final class CompassSensorManager: NSObject, @unchecked Sendable {
 
     private let locationManager = CLLocationManager()
@@ -51,7 +45,6 @@ final class CompassSensorManager: NSObject, @unchecked Sendable {
 }
 
 // MARK: - CLLocationManagerDelegate
-
 extension CompassSensorManager: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
@@ -67,8 +60,6 @@ extension CompassSensorManager: CLLocationManagerDelegate {
 }
 
 #else
-
-/// Stub for non-iOS platforms. Compass is unavailable. :/
 final class CompassSensorManager: @unchecked Sendable {
     var isAvailable: Bool { false }
     func startUpdates(handler: @escaping @MainActor (CompassSample) -> Void) {}

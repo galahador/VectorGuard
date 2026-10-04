@@ -7,8 +7,6 @@
 
 import Foundation
 
-/// A fixed-capacity ring buffer that retains the N most recent scalar readings.
-
 struct SignalBuffer {
     
     private var storage: [Double]
@@ -32,8 +30,6 @@ struct SignalBuffer {
     }
     
     // MARK: - Read
-    
-    /// Values ordered from oldest to newest.
     var values: [Double] {
         guard count == capacity else { return Array(storage.prefix(count)) }
         return Array(storage[head...]) + Array(storage[..<head])
@@ -45,6 +41,5 @@ struct SignalBuffer {
     }
     
     var isFull: Bool { count == capacity }
-    
     var isEmpty: Bool { count == 0 }
 }

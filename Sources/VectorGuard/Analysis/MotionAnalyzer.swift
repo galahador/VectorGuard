@@ -7,9 +7,6 @@
 
 import Foundation
 
-/// Stateful detection engine that classifies raw sensor samples into motion states and events.
-///
-/// All methods must be called on the **main actor**.
 @MainActor
 final class MotionAnalyzer {
     
@@ -37,15 +34,11 @@ final class MotionAnalyzer {
     
     // MARK: - Internal: Jiggling detection
     
-    /// Timestamps of axis-direction reversals inside the jiggling window.
     private var reversalTimestamps: [TimeInterval] = []
-    /// Sign of the previous significant gyroscope reading per axis: -1, 0, or +1.
     private var prevGyroSign = (x: 0, y: 0, z: 0)
     
     // MARK: - Internal: Compass
-
     private var smoothedHeadingVector: (cos: Double, sin: Double)?
-    
     private var lastEmittedHeading: Double?
 
     // MARK: - Internal: Attitude
@@ -115,7 +108,6 @@ final class MotionAnalyzer {
         return degrees
     }
 
-    /// Shortest signed angular distance from `a` to `b`, in degrees, wrapped to `-180...180`.
     private static func angularDelta(from a: Double, to b: Double) -> Double {
         var delta = b - a
         if delta >  180 { delta -= 360 }
@@ -129,7 +121,6 @@ final class MotionAnalyzer {
         let mag = sample.userAcceleration.magnitude
         accelBuffer.push(mag)
         
-        // Rapid movement — immediate, high-priority classification
         let now = sample.timestamp
         if mag >= configuration.rapidMovementThreshold,
            now - lastRapidMovementTime > configuration.rapidMovementDebounce {
@@ -231,7 +222,6 @@ final class MotionAnalyzer {
     }
     
     // MARK: - Private
-    
     private func transition(to newState: MotionState) {
         guard currentState != newState else { return }
         let old = currentState
