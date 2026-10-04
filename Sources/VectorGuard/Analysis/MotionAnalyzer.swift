@@ -49,12 +49,52 @@ final class MotionAnalyzer {
 
     private var lastAttitude: DeviceAttitude?
 
+    // MARK: - Internal: Orientation
+
     private var smoothedGravity: SensorVector?
     private(set) var currentOrientation: DeviceOrientation = .unknown
 
+    // MARK: - Internal: Free fall
+
     private var freeFallStartedAt: TimeInterval?
 
+    // MARK: - Internal: Idle surface classification
+
     private(set) var idleSurfaceState: IdleSurfaceState = .unknown
+
+    // MARK: - Internal: Calibration
+
+    private var calibrationSamples: [Double] = []
+    private var calibrationEndTime: TimeInterval?
+    private(set) var calibratedMovementThreshold: Double?
+
+    var isCalibrating: Bool {
+        configuration.calibrationDuration > 0 && calibratedMovementThreshold == nil
+    }
+
+    private var effectiveMovementThreshold: Double {
+        calibratedMovementThreshold ?? configuration.movementThreshold
+    }
+
+    // MARK: - Internal: Diagnostics
+
+    private var lastRawAccelMagnitude: Double = 0
+    private var lastProcessedTimestamp: TimeInterval = 0
+
+    var diagnosticsSnapshot: VectorGuardDiagnostics {
+        VectorGuardDiagnostics(
+            timestamp: lastProcessedTimestamp,
+            rawAccelMagnitude: lastRawAccelMagnitude,
+            smoothedAccelMagnitude: smoothedAccelMagnitude ?? 0,
+            effectiveMovementThreshold: effectiveMovementThreshold,
+            isCalibrating: isCalibrating,
+            movingCount: movingCount,
+            idleCount: idleCount,
+            reversalCount: reversalTimestamps.count,
+            reversalFrequency: configuration.jigglingWindow > 0 ? Double(reversalTimestamps.count) / configuration.jigglingWindow : 0,
+            motionConfidence: motionConfidence
+        )
+    }
 
     // MARK: - Init
     init(configuration: VectorGuardConfiguration) {
@@ -74,7 +114,8 @@ final class MotionAnalyzer {
         processFreeFall(accelerometer)
     }
 
-    func process(heading rawHeading: Double) {
+    func process(heading rawHeading: Double, accuracy: Double) {
+        guard accuracy >= 0, accuracy <= configuration.maxHeadingAccuracy else { return }
         let heading = smoothed(heading: rawHeading)
         guard let last = lastEmittedHeading else { lastEmittedHeading = heading; return }
         let delta = Self.angularDelta(from: last, to: heading)
@@ -128,6 +169,8 @@ final class MotionAnalyzer {
         return delta
     }
 
+    // MARK: - Private: Orientation
+
     private func processGravity(_ gravity: SensorVector) {
         let factor = configuration.gravitySmoothingFactor
         let previous = smoothedGravity ?? gravity
@@ -144,6 +187,8 @@ final class MotionAnalyzer {
         currentOrientation = orientation
         emit(.orientationChanged(current: orientation, previous: previousOrientation))
     }
+
+    // MARK: - Private: Free fall
 
     private func processFreeFall(_ sample: AccelerometerSample) {
         let totalMagnitude = (sample.userAcceleration + sample.gravity).magnitude
@@ -164,6 +209,24 @@ final class MotionAnalyzer {
     
     private func processAccelerometer(_ sample: AccelerometerSample) {
         let mag = sample.userAcceleration.magnitude
+        lastRawAccelMagnitude = mag
+        lastProcessedTimestamp = sample.timestamp
+
+        if isCalibrating {
+            if calibrationEndTime == nil {
+                calibrationEndTime = sample.timestamp + configuration.calibrationDuration
+            }
+            calibrationSamples.append(mag)
+            if sample.timestamp >= calibrationEndTime! {
+                calibratedMovementThreshold = Self.calibratedThreshold(
+                    from: calibrationSamples,
+                    configuration: configuration
+                )
+                calibrationSamples.removeAll()
+            }
+            return
+        }
+
         accelBuffer.push(mag)
         let smoothedMag = smoothed(magnitude: mag)
         motionConfidence = min(1, smoothedMag / configuration.rapidMovementThreshold)
@@ -183,7 +246,7 @@ final class MotionAnalyzer {
         }
 
         // Hysteresis counters
-        if smoothedMag >= configuration.movementThreshold {
+        if smoothedMag >= effectiveMovementThreshold {
             movingCount += 1
             idleCount    = 0
         } else {
@@ -192,6 +255,14 @@ final class MotionAnalyzer {
         }
 
         updateMovingOrIdle(magnitude: smoothedMag, timestamp: now)
+    }
+
+    private static func calibratedThreshold(from samples: [Double], configuration: VectorGuardConfiguration) -> Double {
+        guard !samples.isEmpty else { return configuration.movementThreshold }
+        let mean = samples.reduce(0, +) / Double(samples.count)
+        let variance = samples.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(samples.count)
+        let noiseFloor = variance.squareRoot()
+        return max(configuration.movementThreshold, noiseFloor * configuration.calibrationThresholdMultiplier)
     }
 
     private func smoothed(magnitude raw: Double) -> Double {
@@ -319,6 +390,9 @@ final class MotionAnalyzer {
     private func reconfigureBuffers() {
         let newCap = Self.bufferCapacity(for: configuration)
         idleSampleTarget = Self.idleSampleTarget(for: configuration)
+        calibratedMovementThreshold = nil
+        calibrationSamples.removeAll()
+        calibrationEndTime = nil
         guard newCap != accelBuffer.capacity else { return }
         accelBuffer = SignalBuffer(capacity: newCap)
     }

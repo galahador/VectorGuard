@@ -31,6 +31,9 @@ public struct VectorGuardConfiguration: Sendable {
     public var orientationThreshold: Double = 0.75
     public var gravitySmoothingFactor: Double = 0.2
     public var restingSurfaceNoiseThreshold: Double = 0.01
+    public var maxHeadingAccuracy: Double = 35.0
+    public var calibrationDuration: TimeInterval = 0
+    public var calibrationThresholdMultiplier: Double = 5.0
 
     // MARK: - Init
     public init() {}
@@ -49,6 +52,7 @@ public struct VectorGuardConfiguration: Sendable {
         c.attitudeChangeThreshold      = 12.0
         c.freeFallThreshold            = 0.35
         c.restingSurfaceNoiseThreshold = 0.006
+        c.maxHeadingAccuracy           = 50.0
         return c
     }
     
@@ -69,6 +73,7 @@ public struct VectorGuardConfiguration: Sendable {
         c.attitudeChangeThreshold      = 35.0
         c.freeFallThreshold            = 0.15
         c.restingSurfaceNoiseThreshold = 0.02
+        c.maxHeadingAccuracy           = 20.0
         return c
     }
 }

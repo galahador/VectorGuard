@@ -28,6 +28,10 @@ public final class VectorGuard {
 
     public var idleSurfaceState: IdleSurfaceState { analyzer.idleSurfaceState }
 
+    public var isCalibrating: Bool { analyzer.isCalibrating }
+
+    public var diagnostics: VectorGuardDiagnostics { analyzer.diagnosticsSnapshot }
+
     public private(set) var isMonitoring = false
 
     public var status: VectorGuardStatus {
@@ -80,6 +84,8 @@ public final class VectorGuard {
 
     private var sensorSubscribers: [UUID: AsyncStream<SensorReading>.Continuation] = [:]
 
+    private var diagnosticsSubscribers: [UUID: AsyncStream<VectorGuardDiagnostics>.Continuation] = [:]
+
     // MARK: - Internal: Sensor Components
     private let motionManager    = MotionSensorManager()
     private let compassManager   = CompassSensorManager()
@@ -123,6 +129,10 @@ public final class VectorGuard {
             for continuation in self.sensorSubscribers.values {
                 continuation.yield(reading)
             }
+            let diagnostics = self.diagnostics
+            for continuation in self.diagnosticsSubscribers.values {
+                continuation.yield(diagnostics)
+            }
         }
 
         if compassManager.isAvailable {
@@ -131,7 +141,7 @@ public final class VectorGuard {
                 self.lastHeading         = sample.magneticHeading
                 self.lastTrueHeading     = sample.trueHeading
                 self.lastHeadingAccuracy = sample.accuracy
-                self.analyzer.process(heading: sample.magneticHeading)
+                self.analyzer.process(heading: sample.magneticHeading, accuracy: sample.accuracy)
             }
         }
 
@@ -228,6 +238,23 @@ public final class VectorGuard {
         }
     }
 
+    public func monitorDiagnostics() -> AsyncStream<VectorGuardDiagnostics> {
+        let id = UUID()
+        var localContinuation: AsyncStream<VectorGuardDiagnostics>.Continuation?
+        let stream = AsyncStream<VectorGuardDiagnostics> { continuation in
+            localContinuation = continuation
+        }
+        if let continuation = localContinuation {
+            diagnosticsSubscribers[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.diagnosticsSubscribers.removeValue(forKey: id)
+                }
+            }
+        }
+        return stream
+    }
+
     // MARK: - Private: Broadcasting
 
     private func broadcast(event: VectorGuardEvent) {
@@ -245,5 +272,7 @@ public final class VectorGuard {
         subscribers.removeAll()
         sensorSubscribers.values.forEach { $0.finish() }
         sensorSubscribers.removeAll()
+        diagnosticsSubscribers.values.forEach { $0.finish() }
+        diagnosticsSubscribers.removeAll()
     }
 }

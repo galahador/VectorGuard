@@ -211,8 +211,8 @@ struct MotionAnalyzerTests {
         var events: [VectorGuardEvent] = []
         analyzer.onEvent = { events.append($0) }
 
-        analyzer.process(heading: 0)     // establishes baseline — no event
-        analyzer.process(heading: 100)   // +100° crosses the 15° and 45° tiers, not 120°
+        analyzer.process(heading: 0, accuracy: 5)     // establishes baseline — no event
+        analyzer.process(heading: 100, accuracy: 5)   // +100° crosses the 15° and 45° tiers, not 120°
 
         let headingEvents = events.compactMap { event -> (current: Double, delta: Double, threshold: Double)? in
             if case .headingChanged(let current, let delta, let threshold) = event { return (current, delta, threshold) }
@@ -234,8 +234,8 @@ struct MotionAnalyzerTests {
         var events: [VectorGuardEvent] = []
         analyzer.onEvent = { events.append($0) }
 
-        analyzer.process(heading: 0)    // baseline
-        analyzer.process(heading: 90)   // one noisy outlier — smoothing should keep the blended value well under 15°
+        analyzer.process(heading: 0, accuracy: 5)    // baseline
+        analyzer.process(heading: 90, accuracy: 5)   // one noisy outlier — smoothing should keep the blended value well under 15°
 
         let headingEvents = events.filter { if case .headingChanged = $0 { return true }; return false }
         #expect(headingEvents.isEmpty)
@@ -252,8 +252,8 @@ struct MotionAnalyzerTests {
         var events: [VectorGuardEvent] = []
         analyzer.onEvent = { events.append($0) }
 
-        analyzer.process(heading: 350)  // baseline
-        analyzer.process(heading: 10)   // naive subtraction gives -340°; the true rotation is +20° through north
+        analyzer.process(heading: 350, accuracy: 5)  // baseline
+        analyzer.process(heading: 10, accuracy: 5)   // naive subtraction gives -340°; the true rotation is +20° through north
 
         let headingEvents = events.compactMap { event -> Double? in
             if case .headingChanged(_, let delta, _) = event { return delta }
