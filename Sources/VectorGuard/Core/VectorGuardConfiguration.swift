@@ -32,28 +32,26 @@ public struct VectorGuardConfiguration: Sendable {
     public var gravitySmoothingFactor: Double = 0.2
     public var restingSurfaceNoiseThreshold: Double = 0.01
     public var maxHeadingAccuracy: Double = 35.0
-    public var calibrationDuration: TimeInterval = 0
-    public var calibrationThresholdMultiplier: Double = 5.0
 
     // MARK: - Init
     public init() {}
 
     // MARK: - Presets
     public static var sensitive: VectorGuardConfiguration {
-        var c = VectorGuardConfiguration()
-        c.movementThreshold            = 0.04
-        c.movementConfirmationSamples  = 2
-        c.rapidMovementThreshold       = 1.0
-        c.jigglingGyroThreshold        = 0.8
-        c.jigglingReversalCount        = 3
-        c.accelSmoothingFactor         = 0.45
-        c.headingSmoothingFactor       = 0.4
-        c.headingChangeThresholds      = [8.0, 30.0, 90.0]
-        c.attitudeChangeThreshold      = 12.0
-        c.freeFallThreshold            = 0.35
-        c.restingSurfaceNoiseThreshold = 0.006
-        c.maxHeadingAccuracy           = 50.0
-        return c
+        var config = VectorGuardConfiguration()
+        config.movementThreshold            = 0.04
+        config.movementConfirmationSamples  = 2
+        config.rapidMovementThreshold       = 1.0
+        config.jigglingGyroThreshold        = 0.8
+        config.jigglingReversalCount        = 3
+        config.accelSmoothingFactor         = 0.45
+        config.headingSmoothingFactor       = 0.41
+        config.headingChangeThresholds      = [8.0, 30.0, 90.0]
+        config.attitudeChangeThreshold      = 12.0
+        config.freeFallThreshold            = 0.35
+        config.restingSurfaceNoiseThreshold = 0.006
+        config.maxHeadingAccuracy           = 50.0
+        return config
     }
     
     public static var balanced: VectorGuardConfiguration {
@@ -61,19 +59,19 @@ public struct VectorGuardConfiguration: Sendable {
     }
 
     public static var relaxed: VectorGuardConfiguration {
-        var c = VectorGuardConfiguration()
-        c.movementThreshold            = 0.15
-        c.movementConfirmationSamples  = 5
-        c.rapidMovementThreshold       = 2.5
-        c.jigglingGyroThreshold        = 2.0
-        c.jigglingReversalCount        = 6
-        c.accelSmoothingFactor         = 0.2
-        c.headingSmoothingFactor       = 0.15
-        c.headingChangeThresholds      = [30.0, 75.0, 150.0]
-        c.attitudeChangeThreshold      = 35.0
-        c.freeFallThreshold            = 0.15
-        c.restingSurfaceNoiseThreshold = 0.02
-        c.maxHeadingAccuracy           = 20.0
-        return c
+        var config = VectorGuardConfiguration()
+        config.movementThreshold            = 0.15
+        config.movementConfirmationSamples  = 5
+        config.rapidMovementThreshold       = 2.5
+        config.jigglingGyroThreshold        = 2.0
+        config.jigglingReversalCount        = 6
+        config.accelSmoothingFactor         = 0.2
+        config.headingSmoothingFactor       = 0.15
+        config.headingChangeThresholds      = [30.0, 75.0, 150.0]
+        config.attitudeChangeThreshold      = 35.0
+        config.freeFallThreshold            = 0.15
+        config.restingSurfaceNoiseThreshold = 0.02
+        config.maxHeadingAccuracy           = 20.0
+        return config
     }
 }
