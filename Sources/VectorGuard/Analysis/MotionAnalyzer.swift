@@ -62,40 +62,6 @@ final class MotionAnalyzer {
 
     private(set) var idleSurfaceState: IdleSurfaceState = .unknown
 
-    // MARK: - Internal: Calibration
-
-    private var calibrationSamples: [Double] = []
-    private var calibrationEndTime: TimeInterval?
-    private(set) var calibratedMovementThreshold: Double?
-
-    var isCalibrating: Bool {
-        configuration.calibrationDuration > 0 && calibratedMovementThreshold == nil
-    }
-
-    private var effectiveMovementThreshold: Double {
-        calibratedMovementThreshold ?? configuration.movementThreshold
-    }
-
-    // MARK: - Internal: Diagnostics
-
-    private var lastRawAccelMagnitude: Double = 0
-    private var lastProcessedTimestamp: TimeInterval = 0
-
-    var diagnosticsSnapshot: VectorGuardDiagnostics {
-        VectorGuardDiagnostics(
-            timestamp: lastProcessedTimestamp,
-            rawAccelMagnitude: lastRawAccelMagnitude,
-            smoothedAccelMagnitude: smoothedAccelMagnitude ?? 0,
-            effectiveMovementThreshold: effectiveMovementThreshold,
-            isCalibrating: isCalibrating,
-            movingCount: movingCount,
-            idleCount: idleCount,
-            reversalCount: reversalTimestamps.count,
-            reversalFrequency: configuration.jigglingWindow > 0 ? Double(reversalTimestamps.count) / configuration.jigglingWindow : 0,
-            motionConfidence: motionConfidence
-        )
-    }
-
     // MARK: - Init
     init(configuration: VectorGuardConfiguration) {
         self.configuration = configuration
@@ -209,23 +175,6 @@ final class MotionAnalyzer {
     
     private func processAccelerometer(_ sample: AccelerometerSample) {
         let mag = sample.userAcceleration.magnitude
-        lastRawAccelMagnitude = mag
-        lastProcessedTimestamp = sample.timestamp
-
-        if isCalibrating {
-            if calibrationEndTime == nil {
-                calibrationEndTime = sample.timestamp + configuration.calibrationDuration
-            }
-            calibrationSamples.append(mag)
-            if sample.timestamp >= calibrationEndTime! {
-                calibratedMovementThreshold = Self.calibratedThreshold(
-                    from: calibrationSamples,
-                    configuration: configuration
-                )
-                calibrationSamples.removeAll()
-            }
-            return
-        }
 
         accelBuffer.push(mag)
         let smoothedMag = smoothed(magnitude: mag)
@@ -246,7 +195,7 @@ final class MotionAnalyzer {
         }
 
         // Hysteresis counters
-        if smoothedMag >= effectiveMovementThreshold {
+        if smoothedMag >= configuration.movementThreshold {
             movingCount += 1
             idleCount    = 0
         } else {
@@ -255,14 +204,6 @@ final class MotionAnalyzer {
         }
 
         updateMovingOrIdle(magnitude: smoothedMag, timestamp: now)
-    }
-
-    private static func calibratedThreshold(from samples: [Double], configuration: VectorGuardConfiguration) -> Double {
-        guard !samples.isEmpty else { return configuration.movementThreshold }
-        let mean = samples.reduce(0, +) / Double(samples.count)
-        let variance = samples.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(samples.count)
-        let noiseFloor = variance.squareRoot()
-        return max(configuration.movementThreshold, noiseFloor * configuration.calibrationThresholdMultiplier)
     }
 
     private func smoothed(magnitude raw: Double) -> Double {
@@ -390,9 +331,6 @@ final class MotionAnalyzer {
     private func reconfigureBuffers() {
         let newCap = Self.bufferCapacity(for: configuration)
         idleSampleTarget = Self.idleSampleTarget(for: configuration)
-        calibratedMovementThreshold = nil
-        calibrationSamples.removeAll()
-        calibrationEndTime = nil
         guard newCap != accelBuffer.capacity else { return }
         accelBuffer = SignalBuffer(capacity: newCap)
     }

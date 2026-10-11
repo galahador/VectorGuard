@@ -28,31 +28,7 @@ public final class VectorGuard {
 
     public var idleSurfaceState: IdleSurfaceState { analyzer.idleSurfaceState }
 
-    public var isCalibrating: Bool { analyzer.isCalibrating }
-
-    public var diagnostics: VectorGuardDiagnostics { analyzer.diagnosticsSnapshot }
-
     public private(set) var isMonitoring = false
-
-    public var status: VectorGuardStatus {
-        VectorGuardStatus(
-            isMonitoring:        isMonitoring,
-            currentState:        currentState,
-            motionConfidence:    motionConfidence,
-            orientation:         orientation,
-            idleSurfaceState:    idleSurfaceState,
-            lastAcceleration:    lastAcceleration,
-            lastGyroscope:       lastGyroscope,
-            lastAttitude:        lastAttitude,
-            lastHeading:         lastHeading,
-            lastTrueHeading:     lastTrueHeading,
-            lastHeadingAccuracy: lastHeadingAccuracy,
-            lastPressure:        lastPressure,
-            lastRelativeAltitude: lastRelativeAltitude,
-            lastEvent:           lastEvent,
-            lastEventDate:       lastEventDate
-        )
-    }
 
     // MARK: - Live Sensor Readings
     
@@ -83,8 +59,6 @@ public final class VectorGuard {
     private var subscribers: [UUID: AsyncStream<VectorGuardEvent>.Continuation] = [:]
 
     private var sensorSubscribers: [UUID: AsyncStream<SensorReading>.Continuation] = [:]
-
-    private var diagnosticsSubscribers: [UUID: AsyncStream<VectorGuardDiagnostics>.Continuation] = [:]
 
     // MARK: - Internal: Sensor Components
     private let motionManager    = MotionSensorManager()
@@ -129,10 +103,6 @@ public final class VectorGuard {
             for continuation in self.sensorSubscribers.values {
                 continuation.yield(reading)
             }
-            let diagnostics = self.diagnostics
-            for continuation in self.diagnosticsSubscribers.values {
-                continuation.yield(diagnostics)
-            }
         }
 
         if compassManager.isAvailable {
@@ -172,21 +142,7 @@ public final class VectorGuard {
 
     // MARK: - Streaming API
     public func subscribe() -> AsyncStream<VectorGuardEvent> {
-        let id = UUID()
-        // Capture the continuation synchronously so we can store it before any events fire.
-        var localContinuation: AsyncStream<VectorGuardEvent>.Continuation?
-        let stream = AsyncStream<VectorGuardEvent> { continuation in
-            localContinuation = continuation
-        }
-        if let continuation = localContinuation {
-            subscribers[id] = continuation
-            continuation.onTermination = { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.subscribers.removeValue(forKey: id)
-                }
-            }
-        }
-        return stream
+        makeStream(storingIn: \.subscribers)
     }
 
     public func subscribe(where predicate: @escaping @Sendable (VectorGuardEvent) -> Bool) -> AsyncStream<VectorGuardEvent> {
@@ -204,20 +160,7 @@ public final class VectorGuard {
     }
 
     public func monitorSensors() -> AsyncStream<SensorReading> {
-        let id = UUID()
-        var localContinuation: AsyncStream<SensorReading>.Continuation?
-        let stream = AsyncStream<SensorReading> { continuation in
-            localContinuation = continuation
-        }
-        if let continuation = localContinuation {
-            sensorSubscribers[id] = continuation
-            continuation.onTermination = { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.sensorSubscribers.removeValue(forKey: id)
-                }
-            }
-        }
-        return stream
+        makeStream(storingIn: \.sensorSubscribers)
     }
 
     public func monitorSensors(throttle interval: TimeInterval) -> AsyncStream<SensorReading> {
@@ -238,17 +181,22 @@ public final class VectorGuard {
         }
     }
 
-    public func monitorDiagnostics() -> AsyncStream<VectorGuardDiagnostics> {
+    // MARK: - Private: Stream Creation
+
+    private func makeStream<T: Sendable>(
+        storingIn keyPath: ReferenceWritableKeyPath<VectorGuard, [UUID: AsyncStream<T>.Continuation]>
+    ) -> AsyncStream<T> {
         let id = UUID()
-        var localContinuation: AsyncStream<VectorGuardDiagnostics>.Continuation?
-        let stream = AsyncStream<VectorGuardDiagnostics> { continuation in
+        var localContinuation: AsyncStream<T>.Continuation?
+        let stream = AsyncStream<T> { continuation in
             localContinuation = continuation
         }
         if let continuation = localContinuation {
-            diagnosticsSubscribers[id] = continuation
+            self[keyPath: keyPath][id] = continuation
+            nonisolated(unsafe) let keyPath = keyPath
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.diagnosticsSubscribers.removeValue(forKey: id)
+                    self?[keyPath: keyPath].removeValue(forKey: id)
                 }
             }
         }
@@ -272,7 +220,5 @@ public final class VectorGuard {
         subscribers.removeAll()
         sensorSubscribers.values.forEach { $0.finish() }
         sensorSubscribers.removeAll()
-        diagnosticsSubscribers.values.forEach { $0.finish() }
-        diagnosticsSubscribers.removeAll()
     }
 }
